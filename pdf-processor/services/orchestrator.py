@@ -144,9 +144,8 @@ class Orchestrator:
                     success_count += 1
                     self.logger.info(f"Uploaded chunk: {chunk_key}")
             
-            # Step 6: Trigger immediate KB sync after upload
-            self.logger.info("[PROCESSING] Step 6: Triggering immediate KB sync")
-            folder_name = folder.split('/')[0] if '/' in folder else folder
+            # KB sync is now immediate - handled in process_single_file
+            self.logger.info("[PROCESSING] Processing completed - KB sync handled per file")
             
             try:
                 from services.kb_sync_service import KBIngestionService
