@@ -1,0 +1,72 @@
+groups:
+  - name: pdf_processor_alerts
+    rules:
+      # High Error Rate Alert
+      - alert: HighErrorRate
+        expr: rate(pdf_processing_errors_total[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High error rate in PDF processing"
+          description: "Error rate is {{ $value }} errors per second"
+
+      # High Processing Time Alert
+      - alert: SlowProcessing
+        expr: pdf_processing_duration_seconds{quantile="0.95"} > 120
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Slow PDF processing detected"
+          description: "95th percentile processing time is {{ $value }}s"
+
+      # Queue Backlog Alert
+      - alert: QueueBacklog
+        expr: sqs_messages_in_queue > 50
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "SQS queue backlog detected"
+          description: "{{ $value }} messages in queue"
+
+      # High CPU Usage Alert
+      - alert: HighCPUUsage
+        expr: system_cpu_percent > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage detected"
+          description: "CPU usage is {{ $value }}%"
+
+      # High Memory Usage Alert
+      - alert: HighMemoryUsage
+        expr: system_memory_percent > 85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage detected"
+          description: "Memory usage is {{ $value }}%"
+
+      # High Disk Usage Alert
+      - alert: HighDiskUsage
+        expr: system_disk_percent > 90
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High disk usage detected"
+          description: "Disk usage is {{ $value }}%"
+
+      # KB Sync Failure Alert
+      - alert: KBSyncFailure
+        expr: rate(kb_sync_total{status="FAILED"}[5m]) > 0.05
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "KB sync failures detected"
+          description: "KB sync failure rate is {{ $value }} per second"
