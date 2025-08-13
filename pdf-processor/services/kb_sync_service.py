@@ -146,6 +146,23 @@ class KBIngestionService:
         description = f"{'Deletion sync' if is_delete else 'Batch sync'} for {folder}"
 
         try:
+            # Log KB details for transparency
+            logger.info(f"[KB-SYNC] Starting sync for folder: {folder}")
+            logger.info(f"[KB-SYNC] Knowledge Base ID: {kb_info['id']}")
+            logger.info(f"[KB-SYNC] Data Source ID: {kb_info['data_source_id']}")
+            logger.info(f"[KB-SYNC] Sync Type: {'Deletion' if is_delete else 'Ingestion'}")
+            
+            # Count files in folder
+            try:
+                response = self.s3_client.list_objects_v2(
+                    Bucket=self.config.CHUNKED_BUCKET,
+                    Prefix=folder + '/'
+                )
+                file_count = len(response.get('Contents', []))
+                logger.info(f"[KB-SYNC] Files to sync: {file_count} in s3://{self.config.CHUNKED_BUCKET}/{folder}/")
+            except:
+                logger.warning(f"[KB-SYNC] Could not count files in {folder}")
+
             response = self.bedrock_client.start_ingestion_job(
                 clientToken=client_token,
                 dataSourceId=kb_info['data_source_id'],
@@ -153,14 +170,28 @@ class KBIngestionService:
                 description=description
             )
             job_id = response['ingestionJob']['ingestionJobId']
-            logger.info(f"Started {'deletion' if is_delete else 'ingestion'} job {job_id} for folder {folder}")
+            logger.info(f"[KB-SYNC] ✅ Started ingestion job: {job_id}")
+            logger.info(f"[KB-SYNC] 📋 Job Description: {description}")
+            logger.info(f"[KB-SYNC] ⏱️  Monitoring job status...")
 
-            # Wait for job to complete
+            # Wait for job to complete with enhanced logging
             wait_result = self.wait_for_ingestion_job(kb_info, job_id)
+            
+            # Log final status
+            if wait_result.get('status') == 'COMPLETE':
+                logger.info(f"[KB-SYNC] ✅ Knowledge Base sync COMPLETED successfully!")
+                logger.info(f"[KB-SYNC] 📊 Job ID: {job_id}")
+                logger.info(f"[KB-SYNC] 🗂️  Folder: {folder}")
+                logger.info(f"[KB-SYNC] 🔗 KB ID: {kb_info['id']}")
+            else:
+                logger.warning(f"[KB-SYNC] ⚠️  Knowledge Base sync completed with status: {wait_result.get('status')}")
+                if wait_result.get('failed_files'):
+                    logger.warning(f"[KB-SYNC] 📄 Failed files: {len(wait_result.get('failed_files', []))}")
+            
             return wait_result
 
         except Exception as e:
-            logger.error(f"Error during sync job start or wait for folder {folder}: {str(e)}")
+            logger.error(f"[KB-SYNC] ❌ Error during sync job for folder {folder}: {str(e)}")
             raise
 
     def wait_for_ingestion_job(self, kb_info: Dict[str, str], job_id: str) -> Dict[str, Any]:
@@ -172,7 +203,11 @@ class KBIngestionService:
         interval = 30
         failed_files_due_to_tokens = []
 
-        logger.info(f"Waiting for ingestion job {job_id} to complete...")
+        logger.info(f"[KB-SYNC] 📊 Monitoring ingestion job: {job_id}")
+        logger.info(f"[KB-SYNC] ⏱️  Maximum wait time: {max_attempts * interval / 60:.1f} minutes")
+
+        start_time = time.time()
+        last_status = None
 
         for attempt in range(max_attempts):
             try:
@@ -183,13 +218,33 @@ class KBIngestionService:
                 )
                 status = response['ingestionJob']['status']
                 failure_reasons = response['ingestionJob'].get('failureReasons', [])
+                
+                # Log status change
+                if status != last_status:
+                    logger.info(f"[KB-SYNC] 🔄 Job {job_id} status changed: {status}")
+                    last_status = status
+                
+                # Progress indicator every 10 attempts
+                if attempt % 10 == 0 and attempt > 0:
+                    elapsed = time.time() - start_time
+                    logger.info(f"[KB-SYNC] ⏳ Still waiting... ({elapsed:.0f}s elapsed, attempt {attempt+1}/{max_attempts})")
 
                 if status == 'COMPLETE':
-                    logger.info(f"Ingestion job {job_id} completed successfully")
-                    return {'status': 'COMPLETE', 'failed_files': failed_files_due_to_tokens}
+                    elapsed = time.time() - start_time
+                    logger.info(f"[KB-SYNC] ✅ SUCCESS! Job {job_id} completed in {elapsed:.0f}s")
+                    
+                    # Get final stats if available
+                    stats = response['ingestionJob'].get('statistics', {})
+                    if stats:
+                        logger.info(f"[KB-SYNC] 📈 Final stats - Processed: {stats.get('documentsProcessed', 'N/A')}, "
+                                   f"Failed: {stats.get('documentsFailed', 'N/A')}")
+                    
+                    return {'status': 'COMPLETE', 'failed_files': failed_files_due_to_tokens, 'duration': elapsed}
 
                 elif status == 'FAILED':
-                    logger.error(f"Ingestion job {job_id} failed: {failure_reasons}")
+                    elapsed = time.time() - start_time
+                    logger.error(f"[KB-SYNC] ❌ FAILED! Job {job_id} failed after {elapsed:.0f}s")
+                    logger.error(f"[KB-SYNC] 📋 Failure reasons: {failure_reasons}")
 
                     # Check for token limit errors
                     for reason in failure_reasons:
@@ -199,28 +254,34 @@ class KBIngestionService:
                                 failed_file = match.group(1)
                                 if failed_file not in failed_files_due_to_tokens:
                                     failed_files_due_to_tokens.append(failed_file)
-                                    logger.warning(f"Found problematic file: {failed_file} due to token limit")
+                                    logger.warning(f"[KB-SYNC] 📄 Token limit issue: {failed_file}")
 
                     if failed_files_due_to_tokens:
-                        logger.warning(f"Ingestion job {job_id} failed with token errors")
-                        return {'status': 'FAILED_TOKEN_ERROR', 'failed_files': failed_files_due_to_tokens}
+                        logger.warning(f"[KB-SYNC] ⚠️  Job failed with {len(failed_files_due_to_tokens)} token limit errors")
+                        return {'status': 'FAILED_TOKEN_ERROR', 'failed_files': failed_files_due_to_tokens, 'duration': elapsed}
                     else:
-                        return {'status': 'FAILED_OTHER_ERROR', 'message': f'Ingestion job failed: {failure_reasons}'}
+                        return {'status': 'FAILED_OTHER_ERROR', 'message': f'Ingestion job failed: {failure_reasons}', 'duration': elapsed}
 
-                logger.info(f"Ingestion job {job_id} status: {status}. Waiting...")
+                elif status == 'IN_PROGRESS':
+                    # Show progress every 5 minutes
+                    if attempt % 10 == 0:
+                        logger.info(f"[KB-SYNC] 🔄 Job {job_id} is IN_PROGRESS... ({attempt+1}/{max_attempts})")
+
                 time.sleep(interval)
 
             except Exception as e:
-                logger.error(f"Error checking ingestion job status for job {job_id}: {str(e)}")
+                elapsed = time.time() - start_time
+                logger.error(f"[KB-SYNC] 🔥 Error checking job status for {job_id}: {str(e)} (after {elapsed:.0f}s)")
                 if failed_files_due_to_tokens:
-                    return {'status': 'ERROR_DURING_WAIT', 'failed_files': failed_files_due_to_tokens, 'polling_error': str(e)}
+                    return {'status': 'ERROR_DURING_WAIT', 'failed_files': failed_files_due_to_tokens, 'polling_error': str(e), 'duration': elapsed}
                 else:
                     raise
 
         # Timeout
-        logger.error(f"Ingestion job {job_id} timed out after {max_attempts} attempts")
+        elapsed = time.time() - start_time
+        logger.error(f"[KB-SYNC] ⏰ TIMEOUT! Job {job_id} timed out after {elapsed:.0f}s ({max_attempts} attempts)")
         if failed_files_due_to_tokens:
-            return {'status': 'TIMEOUT_TOKEN_ERROR', 'failed_files': failed_files_due_to_tokens, 'timeout': True}
+            return {'status': 'TIMEOUT_TOKEN_ERROR', 'failed_files': failed_files_due_to_tokens, 'timeout': True, 'duration': elapsed}
         else:
             raise Exception(f"Ingestion job {job_id} timed out after {max_attempts} attempts")
 
