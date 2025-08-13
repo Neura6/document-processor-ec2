@@ -7,6 +7,9 @@ import PyPDF2
 from io import BytesIO
 import logging
 from typing import List, Dict, Any, Tuple
+from datetime import datetime
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import letter
 from config import CHUNKED_BUCKET
 
 logger = logging.getLogger(__name__)
@@ -137,7 +140,11 @@ class ChunkingService:
                 # Get enhanced metadata for this specific page
                 metadata = self.extract_metadata(s3_key, page_num + 1, total_pages)
                 
-                # Add ONLY the actual content page (no metadata page)
+                # Create metadata page
+                metadata_page = self._create_metadata_page(metadata)
+                writer.add_page(metadata_page)
+                
+                # Add the actual content page
                 writer.add_page(reader.pages[page_num])
                 
                 chunks.append((writer, metadata))
@@ -147,3 +154,64 @@ class ChunkingService:
         except Exception as e:
             self.logger.error(f"Error chunking PDF: {e}")
             return []
+
+    def _create_metadata_page(self, metadata: Dict[str, Any]) -> PyPDF2.PageObject:
+        """
+        Create a PDF page with metadata information.
+        
+        Args:
+            metadata: Dictionary containing metadata
+            
+        Returns:
+            PyPDF2 PageObject with metadata
+        """
+        try:
+            # Create a new PDF with metadata
+            packet = BytesIO()
+            c = canvas.Canvas(packet, pagesize=letter)
+            width, height = letter
+            
+            # Title
+            c.setFont("Helvetica-Bold", 16)
+            c.drawString(50, height - 50, "Document Metadata")
+            
+            # Metadata content
+            c.setFont("Helvetica", 12)
+            y_position = height - 100
+            
+            for key, value in metadata.items():
+                if y_position < 50:  # Prevent going off page
+                    break
+                
+                # Format key for display
+                display_key = key.replace('_', ' ').title()
+                display_value = str(value)
+                
+                # Handle long values
+                if len(display_value) > 80:
+                    display_value = display_value[:77] + "..."
+                
+                c.drawString(50, y_position, f"{display_key}: {display_value}")
+                y_position -= 20
+            
+            # Add timestamp
+            c.setFont("Helvetica", 10)
+            c.drawString(50, 30, f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            
+            c.save()
+            packet.seek(0)
+            
+            # Convert to PyPDF2 PageObject
+            reader = PyPDF2.PdfReader(packet)
+            return reader.pages[0]
+            
+        except Exception as e:
+            self.logger.error(f"Error creating metadata page: {e}")
+            # Return empty page if metadata creation fails
+            packet = BytesIO()
+            c = canvas.Canvas(packet, pagesize=letter)
+            c.drawString(50, 400, "Metadata unavailable")
+            c.save()
+            packet.seek(0)
+            reader = PyPDF2.PdfReader(packet)
+            return reader.pages[0]
