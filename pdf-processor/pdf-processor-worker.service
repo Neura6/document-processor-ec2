@@ -1,0 +1,25 @@
+[Unit]
+Description=PDF Processor SQS Worker
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=ec2-user
+WorkingDirectory=/home/ec2-user/pdf-processor
+ExecStart=/home/ec2-user/pdf-processor/venv/bin/python /home/ec2-user/pdf-processor/sqs_worker.py --queue-url ${SQS_QUEUE_URL} --batch-size 10
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+Environment=PATH=/home/ec2-user/pdf-processor/venv/bin:/usr/local/bin:/usr/bin:/bin
+EnvironmentFile=/home/ec2-user/pdf-processor/.env
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/home/ec2-user/pdf-processor/logs
+
+[Install]
+WantedBy=multi-user.target
