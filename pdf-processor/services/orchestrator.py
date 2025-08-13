@@ -16,7 +16,6 @@ from services.ocr_service import OCRService
 from services.chunking_service import ChunkingService
 from services.s3_service import S3Service
 from services.conversion_service import ConversionService
-from services.folder_sync_tracker import FolderSyncTracker
 import logging
 from config import AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, SOURCE_BUCKET, CHUNKED_BUCKET
 
@@ -25,7 +24,6 @@ class Orchestrator:
     
     def __init__(self):
         self.conversion_service = ConversionService()
-        self.sync_tracker = FolderSyncTracker()
         
         # Initialize S3 constants
         self.SOURCE_BUCKET = SOURCE_BUCKET
@@ -146,33 +144,31 @@ class Orchestrator:
                     success_count += 1
                     self.logger.info(f"Uploaded chunk: {chunk_key}")
             
-            # Step 6: Track and trigger KB sync
-            self.logger.info("Step 6: Tracking KB sync batch")
+            # Step 6: Trigger immediate KB sync after upload
+            self.logger.info("[PROCESSING] Step 6: Triggering immediate KB sync")
+            folder_name = self.get_folder_name_from_path(file_key)
+            
             try:
                 from services.kb_sync_service import KBIngestionService
                 kb_service = KBIngestionService(aws_access_key_id=AWS_ACCESS_KEY_ID, aws_secret_access_key=AWS_SECRET_ACCESS_KEY)
                 
-                # Track file and check if sync should trigger
-                folder_name = file_key.split('/')[0] if '/' in file_key else 'default'
-                should_sync = self.sync_tracker.increment_and_check_sync(folder_name)
-                
-                if should_sync:
-                    self.logger.info(f"[KB-SYNC] 🔄 BATCH SYNC TRIGGERED for {folder_name} after 20 files")
-                    try:
-                        if folder_name in kb_service.get_kb_mapping():
-                            self.logger.info(f"[KB-SYNC] 📡 Starting KB sync for {folder_name}")
-                            kb_result = kb_service.sync_to_knowledge_base_simple(folder_name)
-                            if kb_result.get('status') == 'COMPLETE':
-                                self.logger.info(f"[KB-SYNC] ✅ Successfully synced {folder_name} to Knowledge Base")
-                            else:
-                                self.logger.warning(f"[KB-SYNC] ⚠️ KB sync completed with status: {kb_result.get('status')}")
-                        else:
-                            self.logger.info(f"[KB-SYNC] ❌ No KB mapping found for folder: {folder_name}, skipping sync")
-                    except Exception as e:
-                        self.logger.error(f"[KB-SYNC] ❌ Error during KB sync: {e}")
+                if folder_name in kb_service.get_kb_mapping():
+                    self.logger.info(f"[KB-SYNC] 🚀 Starting immediate KB sync for {folder_name}")
+                    kb_result = kb_service.sync_to_knowledge_base_simple(folder_name)
+                    
+                    if kb_result.get('status') == 'COMPLETE':
+                        self.logger.info(f"[KB-SYNC] ✅ Successfully synced {folder_name} to Knowledge Base")
+                        self.logger.info(f"[KB-SYNC] ⏱️  Sync duration: {kb_result.get('duration', 0):.1f}s")
+                    else:
+                        self.logger.warning(f"[KB-SYNC] ⚠️  KB sync completed with status: {kb_result.get('status')}")
+                        if kb_result.get('failed_files'):
+                            self.logger.warning(f"[KB-SYNC] 📄 Failed files: {len(kb_result.get('failed_files', []))}")
+                else:
+                    self.logger.info(f"[KB-SYNC] ❌ No KB mapping found for folder: {folder_name}")
+                    
             except Exception as e:
-                self.logger.error(f"[KB-SYNC] ❌ Error during KB sync setup: {e}")
-        
+                self.logger.error(f"[KB-SYNC] 🔥 Error during immediate KB sync for {folder_name}: {e}")
+            
             return success_count > 0
         
         except Exception as e:
@@ -205,50 +201,12 @@ class Orchestrator:
                     results['failed'] += 1
                     self.logger.warning(f"[PROCESSING] Failed to process: {file_key}")
             
-            # Final sync for remaining files (< 20)
-            pending_folders = self.sync_tracker.get_all_pending_folders()
-            self.logger.info(f"[KB-SYNC] 📊 FINAL SYNC CHECK: {len(pending_folders)} folders need KB sync")
+            # KB sync is now immediate - no final sync needed
+            self.logger.info("[PROCESSING] ✅ All processing completed - KB sync handled immediately")
             
-            total_synced = 0
-            total_failed = 0
-            
-            for folder_name, count in pending_folders.items():
-                if count > 0:
-                    self.logger.info(f"[KB-SYNC] 🎯 Processing {folder_name}: {count} files to sync")
-                    try:
-                        from services.kb_sync_service import KBIngestionService
-                        kb_service = KBIngestionService(aws_access_key_id=AWS_ACCESS_KEY_ID, aws_secret_access_key=AWS_SECRET_ACCESS_KEY)
-                        
-                        if folder_name in kb_service.get_kb_mapping():
-                            self.logger.info(f"[KB-SYNC] 🚀 Starting KB sync for {folder_name}")
-                            self.logger.info(f"[KB-SYNC] 📋 KB ID: {kb_service.get_kb_mapping()[folder_name]['id']}")
-                            self.logger.info(f"[KB-SYNC] 📁 Data Source: {kb_service.get_kb_mapping()[folder_name]['data_source_id']}")
-                            
-                            kb_result = kb_service.sync_to_knowledge_base_simple(folder_name)
-                            
-                            if kb_result.get('status') == 'COMPLETE':
-                                self.logger.info(f"[KB-SYNC] ✅ SUCCESS! {folder_name} fully synced to Knowledge Base")
-                                self.logger.info(f"[KB-SYNC] ⏱️  Sync duration: {kb_result.get('duration', 0):.1f}s")
-                                total_synced += count
-                            else:
-                                self.logger.warning(f"[KB-SYNC] ⚠️  {folder_name} sync completed with status: {kb_result.get('status')}")
-                                if kb_result.get('failed_files'):
-                                    self.logger.warning(f"[KB-SYNC] 📄 Failed files: {len(kb_result.get('failed_files', []))}")
-                                total_failed += count
-                        else:
-                            self.logger.warning(f"[KB-SYNC] ❌ No KB mapping found for folder: {folder_name}")
-                            total_failed += count
-                        
-                        self.sync_tracker.reset_count(folder_name)
-                    except Exception as e:
-                        self.logger.error(f"[KB-SYNC] 🔥 Error during KB sync for {folder_name}: {e}")
-                        total_failed += count
-            
-            # Final summary
-            self.logger.info(f"[KB-SYNC] 🎉 KB SYNC SUMMARY:")
-            self.logger.info(f"[KB-SYNC] ✅ Successfully synced: {total_synced} files")
-            self.logger.info(f"[KB-SYNC] ❌ Failed/Skipped: {total_failed} files")
-            self.logger.info(f"[KB-SYNC] 📊 Total processed: {total_synced + total_failed} files")
+            # Log final summary
+            self.logger.info(f"[PROCESSING] Processing completed for {folder}: {results}")
+            return results
             
             self.logger.info(f"[PROCESSING] Processing completed for {folder}: {results}")
             return results
