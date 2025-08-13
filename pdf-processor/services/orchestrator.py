@@ -146,7 +146,7 @@ class Orchestrator:
             
             # Step 6: Trigger immediate KB sync after upload
             self.logger.info("[PROCESSING] Step 6: Triggering immediate KB sync")
-            folder_name = self.get_folder_name_from_path(file_key)
+            folder_name = folder.split('/')[0] if '/' in folder else folder
             
             try:
                 from services.kb_sync_service import KBIngestionService
@@ -175,7 +175,14 @@ class Orchestrator:
             logging.error(f"Error processing {file_key}: {e}")
             return False
     
-    def process_folder(self, folder: str) -> Dict[str, int]:
+    def get_folder_name_from_path(self, file_path: str) -> str:
+        """Extract folder name from file path for KB sync mapping"""
+        if '/' in file_path:
+            return file_path.split('/')[0]
+        else:
+            return 'default'
+    
+    def process_folder(self, folder: str) -> Dict[str, Any]:
         """
         Process all PDFs in a folder with smart KB sync.
         
