@@ -203,8 +203,8 @@ class KBIngestionService:
         interval = 30
         failed_files_due_to_tokens = []
 
-        logger.info(f"[KB-SYNC] 📊 Monitoring ingestion job: {job_id}")
-        logger.info(f"[KB-SYNC] ⏱️  Maximum wait time: {max_attempts * interval / 60:.1f} minutes")
+        logger.info(f"KB_SYNC: Monitoring ingestion job {job_id}")
+        logger.info(f"KB_SYNC: Maximum wait time: {max_attempts * interval / 60:.1f} minutes")
 
         start_time = time.time()
         last_status = None
@@ -219,32 +219,33 @@ class KBIngestionService:
                 status = response['ingestionJob']['status']
                 failure_reasons = response['ingestionJob'].get('failureReasons', [])
                 
-                # Log status change
+                # Log status changes
                 if status != last_status:
-                    logger.info(f"[KB-SYNC] 🔄 Job {job_id} status changed: {status}")
+                    logger.info(f"KB_SYNC: Job status changed to '{status}'")
                     last_status = status
                 
-                # Progress indicator every 10 attempts
+                # Progress update every 5 minutes
                 if attempt % 10 == 0 and attempt > 0:
                     elapsed = time.time() - start_time
-                    logger.info(f"[KB-SYNC] ⏳ Still waiting... ({elapsed:.0f}s elapsed, attempt {attempt+1}/{max_attempts})")
+                    logger.info(f"KB_SYNC: Still processing... ({elapsed:.0f}s elapsed)")
 
                 if status == 'COMPLETE':
                     elapsed = time.time() - start_time
-                    logger.info(f"[KB-SYNC] ✅ SUCCESS! Job {job_id} completed in {elapsed:.0f}s")
+                    logger.info(f"KB_SYNC: Job completed successfully in {elapsed:.0f}s")
                     
-                    # Get final stats if available
+                    # Log final statistics
                     stats = response['ingestionJob'].get('statistics', {})
-                    if stats:
-                        logger.info(f"[KB-SYNC] 📈 Final stats - Processed: {stats.get('documentsProcessed', 'N/A')}, "
-                                   f"Failed: {stats.get('documentsFailed', 'N/A')}")
+                    processed = stats.get('documentsProcessed', 0)
+                    failed = stats.get('documentsFailed', 0)
+                    if processed or failed:
+                        logger.info(f"KB_SYNC: Final stats - Processed: {processed}, Failed: {failed}")
                     
                     return {'status': 'COMPLETE', 'failed_files': failed_files_due_to_tokens, 'duration': elapsed}
 
                 elif status == 'FAILED':
                     elapsed = time.time() - start_time
-                    logger.error(f"[KB-SYNC] ❌ FAILED! Job {job_id} failed after {elapsed:.0f}s")
-                    logger.error(f"[KB-SYNC] 📋 Failure reasons: {failure_reasons}")
+                    logger.error(f"KB_SYNC: Job failed after {elapsed:.0f}s")
+                    logger.error(f"KB_SYNC: Failure reasons: {failure_reasons}")
 
                     # Check for token limit errors
                     for reason in failure_reasons:
@@ -254,10 +255,10 @@ class KBIngestionService:
                                 failed_file = match.group(1)
                                 if failed_file not in failed_files_due_to_tokens:
                                     failed_files_due_to_tokens.append(failed_file)
-                                    logger.warning(f"[KB-SYNC] 📄 Token limit issue: {failed_file}")
+                                    logger.warning(f"KB_SYNC: Token limit exceeded for file: {failed_file}")
 
                     if failed_files_due_to_tokens:
-                        logger.warning(f"[KB-SYNC] ⚠️  Job failed with {len(failed_files_due_to_tokens)} token limit errors")
+                        logger.warning(f"KB_SYNC: {len(failed_files_due_to_tokens)} files failed due to token limits")
                         return {'status': 'FAILED_TOKEN_ERROR', 'failed_files': failed_files_due_to_tokens, 'duration': elapsed}
                     else:
                         return {'status': 'FAILED_OTHER_ERROR', 'message': f'Ingestion job failed: {failure_reasons}', 'duration': elapsed}
