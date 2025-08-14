@@ -138,9 +138,9 @@ def main():
     logger.info("Starting PDF Processing SQS Worker")
     logger.info(f"Queue URL: {SQS_QUEUE_URL}")
     
-    # Start Prometheus metrics server
-    start_http_server(8000)
-    logger.info("Metrics server started on port 8000")
+    # Start Prometheus metrics server on different port
+    start_http_server(8001)
+    logger.info("Metrics server started on port 8001")
     
     message_count = 0
     
