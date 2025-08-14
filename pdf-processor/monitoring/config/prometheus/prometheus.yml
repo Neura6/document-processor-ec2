@@ -19,14 +19,14 @@ scrape_configs:
   # PDF Processor metrics
   - job_name: 'pdf-processor'
     static_configs:
-      - targets: ['localhost:8001']
+      - targets: ['host.docker.internal:8001']
     scrape_interval: 5s
     metrics_path: '/metrics'
 
   # Application metrics
   - job_name: 'application'
     static_configs:
-      - targets: ['localhost:8001']
+      - targets: ['host.docker.internal:8001']
     scrape_interval: 10s
 
 # Alertmanager configuration

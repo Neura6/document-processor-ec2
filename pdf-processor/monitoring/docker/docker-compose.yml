@@ -22,6 +22,8 @@ services:
     restart: unless-stopped
     networks:
       - monitoring
+    depends_on:
+      - node-exporter
 
   grafana:
     image: grafana/grafana:10.2.0
@@ -59,17 +61,16 @@ services:
       - /:/rootfs:ro
     command:
       - '--path.procfs=/host/proc'
+      - '--path.rootfs=/rootfs'
       - '--path.sysfs=/host/sys'
-      - '--collector.filesystem.ignored-mount-points=^/(sys|proc|dev|host|etc)($$|/)'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
     restart: unless-stopped
     networks:
       - monitoring
 
 volumes:
   prometheus_data:
-    driver: local
   grafana_data:
-    driver: local
 
 networks:
   monitoring:
