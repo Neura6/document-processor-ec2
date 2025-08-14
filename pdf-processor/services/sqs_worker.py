@@ -20,7 +20,7 @@ from services.metrics_service import metrics
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
@@ -52,22 +52,40 @@ def get_queue_attributes():
 def process_s3_event(record):
     """Process S3 event and extract file info"""
     try:
-        # Handle both direct S3 events and SQS messages
+        # Handle SQS message format - body contains the actual S3 event
         body = record.get('body', '')
         
-        # Try to parse as JSON
-        try:
-            s3_event = json.loads(body)
-        except json.JSONDecodeError:
-            logger.warning("Invalid JSON in message body")
+        # Debug: log the actual message content
+        logger.debug(f"Raw message body: {body}")
+        
+        # Skip empty messages
+        if not body:
+            logger.warning("Empty message body")
             return None
             
-        # Handle direct S3 event format
+        # Handle both JSON string and already parsed JSON
+        try:
+            if isinstance(body, str):
+                s3_event = json.loads(body)
+            else:
+                s3_event = body
+            logger.debug(f"Parsed JSON: {s3_event}")
+        except json.JSONDecodeError as e:
+            logger.warning(f"Invalid JSON in message body: {e}")
+            logger.warning(f"Body content: {body}")
+            return None
+            
+        # Handle S3 event format
         if 'Records' in s3_event and s3_event['Records']:
             s3_record = s3_event['Records'][0]
             
+            # Check if this is an S3 event
+            if s3_record.get('eventSource') != 'aws:s3':
+                logger.info(f"Skipping non-S3 event: {s3_record.get('eventSource')}")
+                return None
+                
             if s3_record.get('eventName') != 'ObjectCreated:Put':
-                logger.info(f"Skipping event: {s3_record.get('eventName')}")
+                logger.info(f"Skipping non-PUT event: {s3_record.get('eventName')}")
                 return None
                 
             bucket = s3_record['s3']['bucket']['name']
@@ -78,10 +96,23 @@ def process_s3_event(record):
                 logger.info(f"Skipping non-PDF file: {key}")
                 return None
                 
+            logger.info(f"Processing S3 event: s3://{bucket}/{key}")
+            return {'bucket': bucket, 'key': key}
+        
+        # Handle direct S3 notifications (non-event format)
+        elif 'bucket' in s3_event and 'key' in s3_event:
+            bucket = s3_event['bucket']
+            key = s3_event['key']
+            
+            if not key.lower().endswith('.pdf'):
+                logger.info(f"Skipping non-PDF file: {key}")
+                return None
+                
+            logger.info(f"Processing direct S3 notification: s3://{bucket}/{key}")
             return {'bucket': bucket, 'key': key}
         
         # Handle test messages or other formats
-        logger.info("Skipping non-S3 event message")
+        logger.info(f"Skipping message format: {type(s3_event)}")
         return None
         
     except KeyError as e:
