@@ -1,0 +1,77 @@
+# Prometheus Alert Rules for PDF Processing Pipeline
+groups:
+  - name: pdf_processing_alerts
+    rules:
+      - alert: HighErrorRate
+        expr: rate(pdf_files_processed_total{status="failed"}[5m]) / rate(pdf_files_processed_total[5m]) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High error rate in PDF processing"
+          description: "Error rate is {{ $value | humanizePercentage }} for the last 5 minutes"
+
+      - alert: QueueBacklog
+        expr: sqs_messages_in_queue > 10
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "SQS queue backlog detected"
+          description: "{{ $value }} messages in queue for more than 10 minutes"
+
+      - alert: ProcessingTimeout
+        expr: histogram_quantile(0.95, rate(pdf_processing_duration_seconds_bucket[5m])) > 120
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "PDF processing taking too long"
+          description: "95th percentile processing time is {{ $value }}s"
+
+      - alert: S3UploadFailures
+        expr: rate(s3_operations_total{operation="upload", status="failed"}[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "S3 upload failures detected"
+          description: "{{ $value }} failed S3 uploads per second"
+
+      - alert: KBSyncFailures
+        expr: rate(kb_sync_total{status="failed"}[5m]) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Knowledge Base sync failures"
+          description: "{{ $value }} failed KB syncs per second"
+
+  - name: system_alerts
+    rules:
+      - alert: HighCPUUsage
+        expr: 100 - (avg by (instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage detected"
+          description: "CPU usage is {{ $value }}% on {{ $labels.instance }}"
+
+      - alert: HighMemoryUsage
+        expr: (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage detected"
+          description: "Memory usage is {{ $value }}% on {{ $labels.instance }}"
+
+      - alert: HighDiskUsage
+        expr: (node_filesystem_size_bytes{fstype!="tmpfs"} - node_filesystem_avail_bytes{fstype!="tmpfs"}) / node_filesystem_size_bytes{fstype!="tmpfs"} * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High disk usage detected"
+          description: "Disk usage is {{ $value }}% on {{ $labels.instance }}"

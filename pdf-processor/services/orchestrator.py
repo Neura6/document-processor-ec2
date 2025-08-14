@@ -1,6 +1,6 @@
 """
 Main Orchestrator Service
-Coordinates all services to process PDF files end-to-end with metrics collection.
+Coordinates all services to process PDF files end-to-end.
 """
 
 import sys
@@ -8,7 +8,6 @@ import boto3
 import io
 import os
 import logging
-import time
 from typing import List, Dict, Any
 import PyPDF2
 from services.filename_service import FilenameService
@@ -42,12 +41,13 @@ class Orchestrator:
             level=logging.INFO,
             format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
             handlers=[
-                logging.StreamHandler(sys.stdout)
+                logging.StreamHandler(sys.stdout),
+                logging.FileHandler('pdf_processor.log')
             ]
         )
         self.logger = logging.getLogger(__name__)
         
-        self.logger.info("Orchestrator initialized successfully with metrics")
+        self.logger.info("Orchestrator initialized successfully")
     
     def process_single_file(self, file_key: str) -> bool:
         """
@@ -154,25 +154,31 @@ class Orchestrator:
                     aws_secret_access_key=AWS_SECRET_ACCESS_KEY
                 )
                 
+                start_time = time.time()
+                
                 if folder_name in kb_service.get_kb_mapping():
                     kb_info = kb_service.get_kb_mapping()[folder_name]
                     self.logger.info(f"KB_SYNC: Starting sync for folder '{folder_name}' -> KB ID: {kb_info['id']}")
                     
                     kb_result = kb_service.sync_to_knowledge_base_simple(folder_name)
+                    duration = time.time() - start_time
                     
                     if kb_result.get('status') == 'COMPLETE':
-                        duration = kb_result.get('duration', 0)
                         self.logger.info(f"KB_SYNC: Successfully synced '{folder_name}' in {duration:.1f}s")
+                        metrics.record_kb_sync(folder_name, True, duration)
                     else:
                         status = kb_result.get('status')
                         failed_count = len(kb_result.get('failed_files', []))
                         self.logger.warning(f"KB_SYNC: Sync completed with status '{status}' ({failed_count} failed files)")
+                        metrics.record_kb_sync(folder_name, False, duration)
                 else:
                     self.logger.info(f"KB_SYNC: No KB mapping found for folder '{folder_name}', skipping sync")
                     
             except Exception as e:
                 self.logger.error(f"KB_SYNC: Error during sync for folder '{folder_name}': {str(e)}")
+                metrics.record_processing_step('kb_sync', 0, False)
             
+            metrics.record_file_processed(folder_name, success_count > 0)
             return success_count > 0
         
         except Exception as e:

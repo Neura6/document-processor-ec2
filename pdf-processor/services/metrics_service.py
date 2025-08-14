@@ -1,156 +1,109 @@
 """
-Metrics Service for Prometheus integration
-Provides centralized metrics collection for PDF processing pipeline
+Metrics Service for Prometheus Integration
+Collects metrics from PDF processing pipeline
 """
 
 from prometheus_client import Counter, Histogram, Gauge, start_http_server
 import time
 import logging
 
-logger = logging.getLogger(__name__)
-
 class MetricsService:
-    """Centralized metrics collection for PDF processing pipeline"""
-    
     def __init__(self, port=8000):
-        """Initialize metrics service"""
-        self.port = port
+        self.logger = logging.getLogger(__name__)
         self.setup_metrics()
-        self.start_server()
-        logger.info(f"Metrics service started on port {port}")
+        start_http_server(port)
+        self.logger.info(f"Metrics server started on port {port}")
     
     def setup_metrics(self):
         """Setup all Prometheus metrics"""
         
-        # File processing metrics
-        self.files_processed_total = Counter(
+        # Processing metrics
+        self.files_processed = Counter(
             'pdf_files_processed_total',
-            'Total files processed',
-            ['status', 'folder', 'step']
+            'Total PDF files processed',
+            ['status', 'folder']
         )
         
-        self.processing_errors_total = Counter(
+        self.processing_errors = Counter(
             'pdf_processing_errors_total',
             'Processing errors by step and type',
-            ['step', 'error_type', 'folder']
+            ['step', 'error_type']
         )
         
-        # Step-level metrics
         self.processing_duration = Histogram(
             'pdf_processing_duration_seconds',
-            'Time to process each step',
-            ['step', 'folder']
+            'Time to process a PDF file',
+            ['step']
         )
         
         # S3 metrics
-        self.s3_operations_total = Counter(
+        self.s3_operations = Counter(
             's3_operations_total',
-            'S3 operations by type and status',
-            ['operation', 'status', 'bucket']
+            'S3 API calls',
+            ['operation', 'status']
         )
         
-        self.s3_operation_duration = Histogram(
-            's3_operation_duration_seconds',
-            'S3 operation duration',
-            ['operation', 'bucket']
+        self.s3_upload_duration = Histogram(
+            's3_upload_duration_seconds',
+            'Time to upload to S3',
+            ['bucket']
         )
         
         # KB sync metrics
-        self.kb_sync_total = Counter(
+        self.kb_sync = Counter(
             'kb_sync_total',
-            'KB sync attempts by status and folder',
+            'KB sync attempts',
             ['status', 'folder']
         )
         
         self.kb_sync_duration = Histogram(
             'kb_sync_duration_seconds',
-            'KB sync operation duration',
-            ['folder']
+            'Time for KB sync operation'
         )
         
-        # Queue metrics
-        self.queue_messages = Gauge(
-            'sqs_messages_in_queue',
-            'Messages currently in SQS queue',
-            ['queue_name']
-        )
-        
-        self.processing_files = Gauge(
+        # System metrics
+        self.active_processing = Gauge(
             'processing_files_current',
             'Files currently being processed'
         )
         
-        # System metrics
-        self.system_cpu_percent = Gauge(
-            'system_cpu_percent',
-            'CPU usage percentage'
-        )
-        
-        self.system_memory_percent = Gauge(
-            'system_memory_percent',
-            'Memory usage percentage'
-        )
-        
-        self.system_disk_percent = Gauge(
-            'system_disk_percent',
-            'Disk usage percentage',
-            ['mount_point']
-        )
-        
-        # Business metrics
-        self.files_per_hour = Gauge(
-            'pdf_files_per_hour',
-            'Files processed per hour',
-            ['folder']
-        )
-        
-        self.folder_processing_volume = Gauge(
-            'folder_processing_volume_total',
-            'Total files processed by folder',
-            ['folder']
+        self.queue_depth = Gauge(
+            'sqs_messages_in_queue',
+            'Messages in SQS queue'
         )
     
-    def start_server(self):
-        """Start Prometheus metrics server"""
-        start_http_server(self.port)
-    
-    def record_file_processed(self, status, folder, step):
+    def record_file_processed(self, folder, success=True):
         """Record file processing completion"""
-        self.files_processed_total.labels(status=status, folder=folder, step=step).inc()
+        status = 'success' if success else 'failed'
+        self.files_processed.labels(status=status, folder=folder).inc()
     
-    def record_error(self, step, error_type, folder):
-        """Record processing error"""
-        self.processing_errors_total.labels(step=step, error_type=error_type, folder=folder).inc()
+    def record_processing_step(self, step, duration, success=True):
+        """Record processing step completion"""
+        self.processing_duration.labels(step=step).observe(duration)
+        if not success:
+            self.processing_errors.labels(step=step, error_type='processing_error').inc()
     
-    def record_processing_time(self, step, folder, duration):
-        """Record processing time for a step"""
-        self.processing_duration.labels(step=step, folder=folder).observe(duration)
-    
-    def record_s3_operation(self, operation, status, bucket, duration=None):
+    def record_s3_operation(self, operation, success=True, duration=0):
         """Record S3 operation"""
-        self.s3_operations_total.labels(operation=operation, status=status, bucket=bucket).inc()
-        if duration:
-            self.s3_operation_duration.labels(operation=operation, bucket=bucket).observe(duration)
+        status = 'success' if success else 'failed'
+        self.s3_operations.labels(operation=operation, status=status).inc()
+        if duration > 0:
+            self.s3_upload_duration.labels(bucket='source').observe(duration)
     
-    def record_kb_sync(self, status, folder, duration=None):
+    def record_kb_sync(self, folder, success=True, duration=0):
         """Record KB sync operation"""
-        self.kb_sync_total.labels(status=status, folder=folder).inc()
-        if duration:
-            self.kb_sync_duration.labels(folder=folder).observe(duration)
+        status = 'success' if success else 'failed'
+        self.kb_sync.labels(status=status, folder=folder).inc()
+        if duration > 0:
+            self.kb_sync_duration.observe(duration)
     
-    def update_queue_messages(self, queue_name, count):
-        """Update queue message count"""
-        self.queue_messages.labels(queue_name=queue_name).set(count)
+    def set_active_processing(self, count):
+        """Set current active processing count"""
+        self.active_processing.set(count)
     
-    def update_processing_files(self, count):
-        """Update currently processing files count"""
-        self.processing_files.set(count)
-    
-    def update_system_metrics(self, cpu, memory, disk_mount, disk_percent):
-        """Update system metrics"""
-        self.system_cpu_percent.set(cpu)
-        self.system_memory_percent.set(memory)
-        self.system_disk_percent.labels(mount_point=disk_mount).set(disk_percent)
+    def set_queue_depth(self, count):
+        """Set current queue depth"""
+        self.queue_depth.set(count)
 
-# Global metrics instance
+# Global instance
 metrics = MetricsService()
