@@ -15,7 +15,7 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from services.orchestrator_instrumented import process_single_file
+from services.orchestrator_instrumented import InstrumentedOrchestrator
 from services.metrics_service import PDF_PROCESSING_DURATION, PDF_FILES_PROCESSED, SQS_MESSAGES_IN_QUEUE
 
 # Configure logging
@@ -118,15 +118,19 @@ def process_message(message):
         start_time = time.time()
         
         try:
-            # Process the file
-            process_single_file(downloaded_path)
+            # Initialize orchestrator and process the file
+            orchestrator = InstrumentedOrchestrator()
+            success = orchestrator.process_single_file(key)
             
-            # Record success
-            PDF_FILES_PROCESSED.labels(status='success').inc()
+            if success:
+                PDF_FILES_PROCESSED.labels(status='success').inc()
+                logger.info(f"Successfully processed: {key}")
+            else:
+                PDF_FILES_PROCESSED.labels(status='error').inc()
+                logger.error(f"Failed to process: {key}")
+            
             PDF_PROCESSING_DURATION.labels(step='total').observe(time.time() - start_time)
-            
-            logger.info(f"Successfully processed: {key}")
-            
+        
         except Exception as e:
             logger.error(f"Error processing {key}: {e}")
             PDF_FILES_PROCESSED.labels(status='error').inc()
