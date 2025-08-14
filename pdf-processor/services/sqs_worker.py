@@ -11,6 +11,10 @@ import boto3
 import logging
 from pathlib import Path
 from prometheus_client import start_http_server, Counter, Gauge, Histogram
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from services.orchestrator_instrumented import process_single_file
 from services.metrics_service import PDF_PROCESSING_DURATION, PDF_FILES_PROCESSED, SQS_MESSAGES_IN_QUEUE
 
@@ -24,6 +28,10 @@ logger = logging.getLogger(__name__)
 # AWS Configuration
 AWS_REGION = os.getenv('AWS_REGION', 'us-east-1')
 SQS_QUEUE_URL = os.getenv('SQS_QUEUE_URL', 'https://sqs.us-east-1.amazonaws.com/your-account-id/your-queue')
+
+# Ensure AWS credentials are set
+if not os.getenv('AWS_ACCESS_KEY_ID') or not os.getenv('AWS_SECRET_ACCESS_KEY'):
+    logger.warning("AWS credentials not found in environment variables")
 
 # Initialize AWS clients
 sqs = boto3.client('sqs', region_name=AWS_REGION)
