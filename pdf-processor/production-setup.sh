@@ -105,7 +105,7 @@ sudo tee /usr/local/bin/start-production > /dev/null << 'EOF'
 echo "🚀 Starting production environment..."
 
 # Start monitoring
-cd /opt/monitoring/docker
+cd /monitoring/docker
 sudo docker compose up -d
 
 # Start services
