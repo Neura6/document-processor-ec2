@@ -16,7 +16,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from services.orchestrator_instrumented import InstrumentedOrchestrator
-from services.metrics_service import PDF_PROCESSING_DURATION, PDF_FILES_PROCESSED, SQS_MESSAGES_IN_QUEUE
+from services.metrics_service import metrics
 
 # Configure logging
 logging.basicConfig(
@@ -97,23 +97,14 @@ def process_message(message):
         # Extract S3 event info
         s3_info = process_s3_event(message)
         if not s3_info:
-            # Delete message if not relevant
             sqs.delete_message(QueueUrl=SQS_QUEUE_URL, ReceiptHandle=receipt_handle)
             return
             
         bucket = s3_info['bucket']
         key = s3_info['key']
         
-        # Download file
-        local_path = f"/tmp/{os.path.basename(key)}"
-        downloaded_path = download_from_s3(bucket, key, local_path)
-        
-        if not downloaded_path:
-            logger.error(f"Failed to download {key}")
-            return
-            
-        # Process the PDF
-        logger.info(f"Processing PDF: {key}")
+        # Process the PDF directly from S3
+        logger.info(f"Processing PDF from S3: s3://{bucket}/{key}")
         
         start_time = time.time()
         
@@ -123,24 +114,20 @@ def process_message(message):
             success = orchestrator.process_single_file(key)
             
             if success:
-                PDF_FILES_PROCESSED.labels(status='success').inc()
+                metrics.files_processed_total.labels(status='success', folder='sqs', step='total').inc()
                 logger.info(f"Successfully processed: {key}")
             else:
-                PDF_FILES_PROCESSED.labels(status='error').inc()
+                metrics.files_processed_total.labels(status='error', folder='sqs', step='total').inc()
                 logger.error(f"Failed to process: {key}")
             
-            PDF_PROCESSING_DURATION.labels(step='total').observe(time.time() - start_time)
+            metrics.processing_duration.labels(step='total', folder='sqs').observe(time.time() - start_time)
         
         except Exception as e:
             logger.error(f"Error processing {key}: {e}")
-            PDF_FILES_PROCESSED.labels(status='error').inc()
+            metrics.files_processed_total.labels(status='error', folder='sqs', step='total').inc()
             
         finally:
-            # Clean up local file
-            if os.path.exists(local_path):
-                os.remove(local_path)
-            
-            # Delete message from queue
+            # Delete message from queue regardless of success/failure
             sqs.delete_message(QueueUrl=SQS_QUEUE_URL, ReceiptHandle=receipt_handle)
             
     except Exception as e:
@@ -161,7 +148,8 @@ def main():
         try:
             # Update queue depth metric
             queue_depth = get_queue_attributes()
-            SQS_MESSAGES_IN_QUEUE.set(queue_depth)
+            # Use a simple counter for now since we don't have SQS queue metric
+            metrics.files_processed_total.labels(status='queue_check', folder='sqs', step='monitoring').inc()
             
             # Receive messages
             response = sqs.receive_message(
