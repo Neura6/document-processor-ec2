@@ -52,45 +52,68 @@ def get_queue_attributes():
 def process_s3_event(record):
     """Process S3 event and extract file info"""
     try:
-        # Handle both direct S3 events and SQS messages
+        # Debug: Print entire record structure
+        logger.info(f"Full record: {record}")
+        
+        # Get the message body
         body = record.get('body', '')
-        
-        # Debug: Print raw message content
-        logger.info(f"Raw message body: {repr(body)}")
-        
-        # Try to parse as JSON
-        try:
-            s3_event = json.loads(body)
-            logger.info(f"Parsed JSON: {type(s3_event)} - Keys: {list(s3_event.keys()) if isinstance(s3_event, dict) else 'not dict'}")
-        except json.JSONDecodeError as e:
-            logger.warning(f"Invalid JSON in message body: {e}")
+        if not body:
+            logger.warning("No body in message")
             return None
             
-        # Handle direct S3 event format
-        if 'Records' in s3_event and s3_event['Records']:
-            s3_record = s3_event['Records'][0]
+        # Debug: Print body type and content
+        logger.info(f"Body type: {type(body)} - Content: {repr(body)}")
+        
+        # Parse the JSON message
+        try:
+            message = json.loads(body)
+            logger.info(f"Parsed message type: {type(message)}")
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse JSON: {e}")
+            return None
             
-            if s3_record.get('eventName') != 'ObjectCreated:Put':
-                logger.info(f"Skipping event: {s3_record.get('eventName')}")
-                return None
+        # The message should contain the S3 event
+        if not isinstance(message, dict):
+            logger.warning("Message is not a dictionary")
+            return None
+            
+        # Look for Records in the message
+        if 'Records' not in message:
+            logger.warning("No Records in message")
+            return None
+            
+        records = message['Records']
+        if not records or not isinstance(records, list):
+            logger.warning("No valid Records list")
+            return None
+            
+        # Process each record (usually just one)
+        for record_data in records:
+            if record_data.get('eventName') != 'ObjectCreated:Put':
+                logger.info(f"Skipping non-Put event: {record_data.get('eventName')}")
+                continue
                 
-            bucket = s3_record['s3']['bucket']['name']
-            key = s3_record['s3']['object']['key']
+            s3_data = record_data.get('s3', {})
+            bucket_data = s3_data.get('bucket', {})
+            object_data = s3_data.get('object', {})
             
+            bucket = bucket_data.get('name')
+            key = object_data.get('key')
+            
+            if not bucket or not key:
+                logger.warning(f"Missing bucket or key: bucket={bucket}, key={key}")
+                continue
+                
             # Skip non-PDF files
             if not key.lower().endswith('.pdf'):
                 logger.info(f"Skipping non-PDF file: {key}")
-                return None
+                continue
                 
+            logger.info(f"Processing S3 event: bucket={bucket}, key={key}")
             return {'bucket': bucket, 'key': key}
-        
-        # Handle test messages or other formats
-        logger.info("Skipping non-S3 event message")
+            
         return None
         
-    except KeyError as e:
-        logger.error(f"Missing key in S3 event: {e}")
-        return None
     except Exception as e:
         logger.error(f"Error processing S3 event: {e}")
         return None
