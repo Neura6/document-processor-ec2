@@ -26,13 +26,14 @@ fi
 
 echo -e "${GREEN}✅ Docker is running${NC}"
 
-# Check if monitoring directory exists
-if [ ! -d "/home/ubuntu/pdf-processor/monitoring" ]; then
-    echo -e "${RED}❌ Monitoring directory not found${NC}"
+# Check if we're in the right directory
+if [ ! -f "docker-compose.yml" ]; then
+    echo -e "${RED}❌ docker-compose.yml not found in current directory${NC}"
+    echo -e "${YELLOW}Make sure you're in the monitoring directory${NC}"
     exit 1
 fi
 
-cd /home/ubuntu/pdf-processor/monitoring
+cd docker 2>/dev/null || cd .
 
 # Check if docker-compose.yml exists
 if [ ! -f "docker-compose.yml" ]; then
