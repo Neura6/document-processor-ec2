@@ -52,28 +52,41 @@ def get_queue_attributes():
 def process_s3_event(record):
     """Process S3 event and extract file info"""
     try:
-        s3_event = json.loads(record['body'])
+        # Handle both direct S3 events and SQS messages
+        body = record.get('body', '')
         
-        if 'Records' not in s3_event:
-            logger.warning("No Records in S3 event")
+        # Try to parse as JSON
+        try:
+            s3_event = json.loads(body)
+        except json.JSONDecodeError:
+            logger.warning("Invalid JSON in message body")
             return None
             
-        s3_record = s3_event['Records'][0]
-        
-        if s3_record['eventName'] != 'ObjectCreated:Put':
-            logger.info(f"Skipping event: {s3_record['eventName']}")
-            return None
+        # Handle direct S3 event format
+        if 'Records' in s3_event and s3_event['Records']:
+            s3_record = s3_event['Records'][0]
             
-        bucket = s3_record['s3']['bucket']['name']
-        key = s3_record['s3']['object']['key']
-        
-        # Skip non-PDF files
-        if not key.lower().endswith('.pdf'):
-            logger.info(f"Skipping non-PDF file: {key}")
-            return None
+            if s3_record.get('eventName') != 'ObjectCreated:Put':
+                logger.info(f"Skipping event: {s3_record.get('eventName')}")
+                return None
+                
+            bucket = s3_record['s3']['bucket']['name']
+            key = s3_record['s3']['object']['key']
             
-        return {'bucket': bucket, 'key': key}
+            # Skip non-PDF files
+            if not key.lower().endswith('.pdf'):
+                logger.info(f"Skipping non-PDF file: {key}")
+                return None
+                
+            return {'bucket': bucket, 'key': key}
         
+        # Handle test messages or other formats
+        logger.info("Skipping non-S3 event message")
+        return None
+        
+    except KeyError as e:
+        logger.error(f"Missing key in S3 event: {e}")
+        return None
     except Exception as e:
         logger.error(f"Error processing S3 event: {e}")
         return None
