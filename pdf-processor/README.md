@@ -1,84 +1,47 @@
-# PDF Processing Pipeline with Monitoring
+# PDF Processing Pipeline
 
-A comprehensive PDF processing pipeline with real-time monitoring using Prometheus and Grafana.
+Production-grade PDF processing with real-time monitoring on EC2 Ubuntu.
 
-## 🚀 Features
+## 🚀 Complete System
+- **S3 → SQS → Processing → Knowledge Base** pipeline
+- **Real-time monitoring** with Prometheus + Grafana
+- **Auto-scaling** and error handling
+- **16 AWS Bedrock Knowledge Bases** sync
 
-- **PDF Processing**: Convert, clean, watermark, OCR, chunk, and upload PDFs
-- **SQS Integration**: Automatic processing from S3 uploads
-- **Real-time Monitoring**: Prometheus + Grafana dashboards
-- **Auto-scaling**: Storage management and error handling
-- **Knowledge Base**: Automatic sync to vector database
+## 📊 Quick Start
 
-## 📁 Project Structure
-
-```
-pdf-processor/
-├── services/                 # Core processing services
-│   ├── __init__.py
-│   ├── metrics_service.py    # Prometheus metrics
-│   ├── orchestrator_instrumented.py  # Main processing pipeline
-│   └── sqs_worker_metrics.py # SQS worker with metrics
-├── monitoring/              # Monitoring stack
-│   ├── docker/
-│   │   └── docker-compose.yml
-│   ├── config/
-│   │   ├── prometheus/
-│   │   ├── grafana/
-│   │   └── alertmanager/
-│   ├── scripts/
-│   │   └── setup-ubuntu.sh
-│   └── docs/
-│       └── MONITORING-DEPLOYMENT.md
-├── config/                  # Configuration files
-└── deployment/              # Deployment scripts
-```
-
-## 🛠️ Quick Start
-
-### 1. Setup Monitoring
 ```bash
-# Run setup script
-chmod +x monitoring/scripts/setup-ubuntu.sh
-./monitoring/scripts/setup-ubuntu.sh
+# Deploy on EC2
+cd ~/document-processor-ec2/pdf-processor/monitoring/docker
+docker-compose up -d
+
+# Start processing
+sudo systemctl start pdf-processor-worker pdf-metrics
+
+# Access dashboards
+# Grafana: http://YOUR-EC2-IP:3000 (admin/admin123)
+# Prometheus: http://YOUR-EC2-IP:9090
 ```
 
-### 2. Start Services
-```bash
-# Start monitoring stack
-start-monitoring
-
-# Check status
-monitoring-status
-```
-
-### 3. Access Dashboards
-- **Grafana**: http://your-ec2-ip:3000 (admin/admin123)
-- **Prometheus**: http://your-ec2-ip:9090
-
-## 📊 Monitoring Metrics
-
-### PDF Processing
-- Files processed per minute
-- Success/failure rates
-- Processing time per step
-- Queue depth
-- Error rates by type
-
-### System Resources
-- CPU, memory, disk usage
-- Network I/O
-- Docker container metrics
+## 🎯 Features
+- **PDF Processing**: 7-step pipeline (convert→clean→watermark→OCR→chunk→upload→sync)
+- **SQS Integration**: Event-driven from S3 uploads
+- **Monitoring**: Real-time dashboards
+- **Auto-retry**: Failed processing recovery
+- **Production-ready**: Systemd services
 
 ## 🔧 Commands
-
-### Service Management
 ```bash
-start-monitoring      # Start all services
-stop-monitoring       # Stop all services
-monitoring-status     # Check service status
+start-production        # Start everything
+production-status       # Check status
+sudo journalctl -u pdf-processor-worker -f  # View logs
 ```
 
+## 📁 Structure
+- `services/` - Core processing microservices
+- `monitoring/` - Prometheus, Grafana, Alertmanager
+- `config/` - AWS, S3, SQS configurations
+- `deployment/` - Production deployment scripts
 ### Development
 ```bash
 # Process files manually
