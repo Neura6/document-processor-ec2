@@ -123,7 +123,7 @@ class SQSWorker:
                     QueueUrl=self.queue_url,
                     MaxNumberOfMessages=10,
                     WaitTimeSeconds=20,
-                    VisibilityTimeoutSeconds=300
+                    VisibilityTimeout=300
                 )
                 
                 messages = response.get('Messages', [])
