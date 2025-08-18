@@ -18,22 +18,28 @@ from services.s3_service import S3Service
 from services.conversion_service import ConversionService
 import logging
 from config import AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, SOURCE_BUCKET, CHUNKED_BUCKET
+from monitoring.metrics import (
+    files_processed, processing_duration, processing_errors,
+    s3_uploads_total, s3_upload_duration, kb_sync_total, kb_sync_duration,
+    active_processing_jobs, record_processing_time, record_file_processed,
+    record_kb_sync
+)
 
 class Orchestrator:
     """Main orchestrator for PDF processing workflow."""
     
     def __init__(self):
+        self.logger = logging.getLogger(__name__)
         self.conversion_service = ConversionService()
-        
-        # Initialize S3 constants
-        self.SOURCE_BUCKET = SOURCE_BUCKET
-        self.CHUNKED_BUCKET = CHUNKED_BUCKET
-        self.s3_service = S3Service(AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
         self.filename_service = FilenameService()
         self.watermark_service = WatermarkService()
         self.ocr_service = OCRService()
         self.chunking_service = ChunkingService()
-        self.conversion_service = ConversionService()
+        self.s3_service = S3Service(AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
+        
+        # Initialize S3 constants
+        self.SOURCE_BUCKET = SOURCE_BUCKET
+        self.CHUNKED_BUCKET = CHUNKED_BUCKET
         
         # Configure logging
         logging.basicConfig(
@@ -44,65 +50,58 @@ class Orchestrator:
                 logging.FileHandler('pdf_processor.log')
             ]
         )
-        self.logger = logging.getLogger(__name__)
-        
         self.logger.info("Orchestrator initialized successfully")
     
     def process_single_file(self, file_key: str) -> bool:
         """
-        Process a single file through the complete pipeline.
+        Process a single PDF file through the complete pipeline.
         
         Args:
-            file_key: S3 object key
+            file_key: S3 object key to process
             
         Returns:
-            True if successful, False otherwise
+            bool: True if processing successful, False otherwise
         """
+        active_processing_jobs.inc()
+        start_time = time.time()
+        folder_name = file_key.split('/')[0] if '/' in file_key else 'default'
+        
         try:
             self.logger.info(f"Starting processing for: {file_key}")
             
-            # Step 0: Check if already chunked (skip processing)
-            chunked_key = f"{os.path.splitext(file_key)[0]}_page_1.pdf"
-            if self.s3_service.object_exists(CHUNKED_BUCKET, chunked_key):
-                self.logger.info(f"File already chunked: {file_key}, skipping processing")
-                return True
-            
-            # Step 1: Check file format and convert if necessary
+            # Step 0: Check file format and convert if necessary
             extension = os.path.splitext(file_key)[1].lower()
             if self.conversion_service.is_convertible_format(file_key):
                 self.logger.info("Step 0: Converting document to PDF")
                 file_bytes = self.s3_service.get_object(SOURCE_BUCKET, file_key)
+                
+                convert_start = time.time()
                 pdf_content, converted_filename = self.conversion_service.convert_to_pdf(file_bytes, file_key)
+                record_processing_time('conversion', time.time() - convert_start)
                 
                 if pdf_content is None:
                     self.logger.error(f"Failed to convert {file_key} to PDF")
+                    processing_errors.labels(error_type='conversion_failed', step='conversion').inc()
+                    record_file_processed('failed', folder_name)
                     return False
                 
-                # Update file_key to use the converted filename
                 file_key = converted_filename
                 pdf_stream = io.BytesIO(pdf_content)
                 self.logger.info(f"Successfully converted to {converted_filename}")
             else:
-                # Already PDF, download normally
                 pdf_bytes = self.s3_service.get_object(SOURCE_BUCKET, file_key)
                 pdf_stream = io.BytesIO(pdf_bytes)
             
             # Step 1: Clean filename if needed
             self.logger.info("Step 1: Cleaning filename")
             cleaned_key = self.filename_service.clean_filename(file_key)
-            if cleaned_key != file_key:
-                # Handle filename cleaning (copy new, delete old)
-                if not self.s3_service.object_exists(SOURCE_BUCKET, cleaned_key):
-                    self.s3_service.copy_object(SOURCE_BUCKET, file_key, SOURCE_BUCKET, cleaned_key)
-                    self.s3_service.delete_object(SOURCE_BUCKET, file_key)
-                    file_key = cleaned_key
-                    self.logger.info(f"File renamed to: {file_key}")
-                else:
-                    self.logger.warning(f"Target key {cleaned_key} already exists, skipping rename")
             
             # Step 2: Remove watermarks
             self.logger.info("Step 2: Removing watermarks")
+            watermark_start = time.time()
             watermark_result = self.watermark_service.remove_watermarks(pdf_stream, file_key)
+            record_processing_time('watermark_removal', time.time() - watermark_start)
+            
             if watermark_result[0]:
                 pdf_stream = watermark_result[0]
                 if watermark_result[1]:
@@ -113,7 +112,10 @@ class Orchestrator:
             
             # Step 3: Apply OCR if needed
             self.logger.info("Step 3: Applying OCR")
+            ocr_start = time.time()
             ocr_result = self.ocr_service.apply_ocr_to_pdf(pdf_stream, file_key)
+            record_processing_time('ocr', time.time() - ocr_start)
+            
             if ocr_result[0]:
                 pdf_stream = ocr_result[0]
                 if ocr_result[1]:
@@ -124,14 +126,20 @@ class Orchestrator:
             
             # Step 4: Chunk PDF
             self.logger.info("Step 4: Chunking PDF")
+            chunk_start = time.time()
             chunks = self.chunking_service.chunk_pdf(pdf_stream, file_key)
+            record_processing_time('chunking', time.time() - chunk_start)
+            
             if not chunks:
                 self.logger.error("Failed to chunk PDF")
+                processing_errors.labels(error_type='chunking_failed', step='chunking').inc()
+                record_file_processed('failed', folder_name)
                 return False
             
             # Step 5: Upload chunks to S3
             self.logger.info("Step 5: Uploading chunks to S3")
             success_count = 0
+            
             for writer, metadata in chunks:
                 output = io.BytesIO()
                 writer.write(output)
@@ -140,9 +148,15 @@ class Orchestrator:
                 page_num = metadata.get('page_number', 1)
                 chunk_key = f"{os.path.splitext(file_key)[0]}_page_{page_num}.pdf"
                 
+                upload_start = time.time()
                 if self.s3_service.put_object(CHUNKED_BUCKET, chunk_key, output.getvalue()):
                     success_count += 1
+                    s3_uploads_total.labels(bucket=CHUNKED_BUCKET, status='success').inc()
+                    s3_upload_duration.observe(time.time() - upload_start)
                     self.logger.info(f"Uploaded chunk: {chunk_key}")
+                else:
+                    s3_uploads_total.labels(bucket=CHUNKED_BUCKET, status='failed').inc()
+            
             # Step 6: Sync to Knowledge Base immediately after upload
             folder_name = file_key.split('/')[0] if '/' in file_key else 'default'
             
@@ -157,26 +171,43 @@ class Orchestrator:
                     kb_info = kb_service.get_kb_mapping()[folder_name]
                     self.logger.info(f"KB_SYNC: Starting sync for folder '{folder_name}' -> KB ID: {kb_info['id']}")
                     
+                    kb_start = time.time()
                     kb_result = kb_service.sync_to_knowledge_base_simple(folder_name)
+                    kb_duration = time.time() - kb_start
                     
                     if kb_result.get('status') == 'COMPLETE':
-                        duration = kb_result.get('duration', 0)
-                        self.logger.info(f"KB_SYNC: Successfully synced '{folder_name}' in {duration:.1f}s")
+                        kb_sync_total.labels(folder=folder_name, status='COMPLETE').inc()
+                        kb_sync_duration.labels(folder=folder_name).observe(kb_duration)
+                        self.logger.info(f"KB_SYNC: Successfully synced '{folder_name}' in {kb_duration:.1f}s")
                     else:
                         status = kb_result.get('status')
                         failed_count = len(kb_result.get('failed_files', []))
+                        kb_sync_total.labels(folder=folder_name, status=status).inc()
                         self.logger.warning(f"KB_SYNC: Sync completed with status '{status}' ({failed_count} failed files)")
                 else:
                     self.logger.info(f"KB_SYNC: No KB mapping found for folder '{folder_name}', skipping sync")
                     
             except Exception as e:
+                kb_sync_total.labels(folder=folder_name, status='failed').inc()
                 self.logger.error(f"KB_SYNC: Error during sync for folder '{folder_name}': {str(e)}")
             
-            return success_count > 0
-        
+            processing_time_total = time.time() - start_time
+            record_processing_time('total', processing_time_total)
+            
+            if success_count > 0:
+                record_file_processed('success', folder_name)
+                return True
+            else:
+                record_file_processed('failed', folder_name)
+                return False
+                
         except Exception as e:
+            processing_errors.labels(error_type='general', step='processing').inc()
+            record_file_processed('failed', folder_name)
             logging.error(f"Error processing {file_key}: {e}")
             return False
+        finally:
+            active_processing_jobs.dec()
     
     def get_folder_name_from_path(self, file_path: str) -> str:
         """Extract folder name from file path for KB sync mapping"""
