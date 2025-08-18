@@ -20,15 +20,18 @@ import logging
 from config import AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, SOURCE_BUCKET, CHUNKED_BUCKET
 from monitoring.metrics import (
     files_processed_total,
-    files_processed_success,
-    files_processed_failure,
-    processing_time,
-    s3_uploads,
-    kb_sync_success,
-    kb_sync_failure,
+    processing_duration,
+    processing_errors,
+    s3_uploads_total,
+    s3_upload_duration,
+    kb_sync_total,
+    kb_sync_duration,
     queue_depth,
-    active_jobs,
-    start_metrics_server
+    active_processing_jobs,
+    start_metrics_server,
+    record_processing_time,
+    record_file_processed,
+    record_kb_sync
 )
 
 class Orchestrator:
