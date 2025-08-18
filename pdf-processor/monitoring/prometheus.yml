@@ -8,7 +8,7 @@ rule_files:
 scrape_configs:
   - job_name: 'pdf-processor'
     static_configs:
-      - targets: ['host.docker.internal:8000']
+      - targets: ['172.31.20.109:8000']
     metrics_path: '/metrics'
     scrape_interval: 15s
 
