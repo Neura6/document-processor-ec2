@@ -1,0 +1,117 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "PDF Processing Pipeline Dashboard",
+    "tags": ["pdf-processor", "monitoring"],
+    "timezone": "browser",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Files Processed Today",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "sum(pdf_files_processed_total)",
+            "legendFormat": "Total Files"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0}
+      },
+      {
+        "id": 2,
+        "title": "Processing Success Rate",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "sum(rate(pdf_files_processed_total{status='success'}[1h])) / sum(rate(pdf_files_processed_total[1h])) * 100",
+            "legendFormat": "Success Rate %"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0}
+      },
+      {
+        "id": 3,
+        "title": "Processing Rate (per hour)",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(pdf_files_processed_total[5m]) * 3600",
+            "legendFormat": "Files/Hour"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8}
+      },
+      {
+        "id": 4,
+        "title": "Processing Time Distribution",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(pdf_processing_duration_seconds_bucket[5m]))",
+            "legendFormat": "95th percentile"
+          },
+          {
+            "expr": "histogram_quantile(0.50, rate(pdf_processing_duration_seconds_bucket[5m]))",
+            "legendFormat": "50th percentile"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 16}
+      },
+      {
+        "id": 5,
+        "title": "KB Sync Success Rate",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "sum(rate(kb_sync_total{status='COMPLETE'}[1h])) / sum(rate(kb_sync_total[1h])) * 100",
+            "legendFormat": "KB Sync %"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24}
+      },
+      {
+        "id": 6,
+        "title": "Active Processing Jobs",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "active_processing_jobs",
+            "legendFormat": "Active Jobs"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 24}
+      },
+      {
+        "id": 7,
+        "title": "S3 Upload Success Rate",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "sum(rate(s3_uploads_total{status='success'}[1h])) / sum(rate(s3_uploads_total[1h])) * 100",
+            "legendFormat": "S3 Upload %"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 32}
+      },
+      {
+        "id": 8,
+        "title": "Processing Errors",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(pdf_processing_errors_total[5m])",
+            "legendFormat": "Errors/sec"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 32}
+      }
+    ],
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "refresh": "30s",
+    "schemaVersion": 27,
+    "version": 1
+  }
+}
