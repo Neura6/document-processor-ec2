@@ -7,6 +7,7 @@ import sys
 import boto3
 import io
 import os
+import time
 import logging
 from typing import List, Dict, Any
 import PyPDF2
