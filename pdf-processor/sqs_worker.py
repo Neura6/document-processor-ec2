@@ -61,27 +61,35 @@ class SQSWorker:
                 
                 for record in records:
                     if record.get('eventName') == 'ObjectCreated:Put':
-                        bucket = record['s3']['bucket']['name']
-                        key = record['s3']['object']['key']
+                        s3_info = record.get('s3', {})
+                        bucket = s3_info.get('bucket', {}).get('name')
+                        key = s3_info.get('object', {}).get('key')
                         
-                        logger.info(f"Processing S3 object: {bucket}/{key}")
-                        
-                        # Only process from source bucket
-                        if bucket == os.getenv('SOURCE_BUCKET'):
-                            success = self.orchestrator.process_single_file(key)
+                        if bucket and key:
+                            logger.info(f"Processing file: {bucket}/{key}")
                             
-                            if success:
-                                logger.info(f"Successfully processed: {key}")
+                            if bucket == os.getenv('SOURCE_BUCKET'):
+                                success = self.orchestrator.process_single_file(key)
+                                
+                                if success:
+                                    logger.info(f"Successfully processed: {key}")
+                                else:
+                                    logger.error(f"Failed to process: {key}")
                             else:
-                                logger.error(f"Failed to process: {key}")
-                        else:
-                            logger.info(f"Skipping file from bucket: {bucket}")
+                                logger.info(f"Skipping file from bucket: {bucket}")
                 
                 processed_receipts.append(message['ReceiptHandle'])
                 messages_processed.inc()
                 
+            except KeyError as e:
+                logger.error(f"Error processing message - missing key: {e}")
+                logger.error(f"Message content: {message}")
+            except json.JSONDecodeError as e:
+                logger.error(f"Error parsing JSON: {e}")
+                logger.error(f"Raw message body: {message.get('body', 'No body')}")
             except Exception as e:
                 logger.error(f"Error processing message: {e}")
+                logger.error(f"Message content: {message}")
         
         return processed_receipts
     
