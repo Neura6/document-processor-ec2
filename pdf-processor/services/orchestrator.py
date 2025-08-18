@@ -76,6 +76,10 @@ class Orchestrator:
         start_time = time.time()
         folder_name = file_key.split('/')[0] if '/' in file_key else 'default'
         
+        # URL decode the file key to handle spaces and special characters
+        from urllib.parse import unquote_plus
+        file_key = unquote_plus(file_key)
+        
         try:
             self.logger.info(f"Starting processing for: {file_key}")
             
