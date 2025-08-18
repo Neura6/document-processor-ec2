@@ -50,7 +50,8 @@ class SQSWorker:
         
         for message in messages:
             try:
-                body = json.loads(message['body'])
+                # Parse the message body
+                body = json.loads(message['Body'])
                 
                 # Handle both direct S3 events and SNS-wrapped events
                 if 'Records' in body:
@@ -86,7 +87,7 @@ class SQSWorker:
                 logger.error(f"Message content: {message}")
             except json.JSONDecodeError as e:
                 logger.error(f"Error parsing JSON: {e}")
-                logger.error(f"Raw message body: {message.get('body', 'No body')}")
+                logger.error(f"Raw message body: {message.get('Body', 'No body')}")
             except Exception as e:
                 logger.error(f"Error processing message: {e}")
                 logger.error(f"Message content: {message}")
