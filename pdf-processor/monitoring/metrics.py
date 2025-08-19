@@ -42,6 +42,22 @@ def record_file_processed(status, folder):
     """Record a file processing completion"""
     files_processed_total.labels(status=status, folder=folder).inc()
 
+def record_file_uploaded_to_s3():
+    """Record file uploaded to S3"""
+    files_uploaded_to_s3_total.inc()
+
+def record_file_converted_to_pdf(job="today"):
+    """Record file converted to PDF"""
+    files_converted_to_pdf_total.labels(job=job).inc()
+
+def record_file_chunked(job="today"):
+    """Record original file chunked"""
+    files_chunked_total.labels(job=job).inc()
+
+def record_file_not_converted(job="today"):
+    """Record file not converted from other formats"""
+    files_not_converted_total.labels(job=job).inc()
+
 def record_kb_sync(folder, status, duration=None):
     """Record KB sync attempt"""
     kb_sync_total.labels(folder=folder, status=status).inc()

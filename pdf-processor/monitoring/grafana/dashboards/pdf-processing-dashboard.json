@@ -11,7 +11,7 @@
         "type": "stat",
         "targets": [
           {
-            "expr": "sum(files_uploaded_to_s3_total) - sum(files_processed_total)",
+            "expr": "sum(files_uploaded_to_s3_total) - sum(pdf_files_processed_total)",
             "legendFormat": "Pending Files"
           }
         ],
@@ -35,7 +35,7 @@
         "type": "stat",
         "targets": [
           {
-            "expr": "sum(files_converted_to_pdf_total{job=\"today\"})",
+            "expr": "sum(files_converted_to_pdf_total)",
             "legendFormat": "Today"
           }
         ],
@@ -47,7 +47,7 @@
         "type": "stat",
         "targets": [
           {
-            "expr": "sum(files_chunked_total{job=\"today\"})",
+            "expr": "sum(files_chunked_total)",
             "legendFormat": "Today"
           }
         ],
@@ -59,7 +59,7 @@
         "type": "stat",
         "targets": [
           {
-            "expr": "sum(files_processed_total{job=\"today\"})",
+            "expr": "sum(pdf_files_processed_total)",
             "legendFormat": "Today"
           }
         ],
@@ -71,7 +71,7 @@
         "type": "stat",
         "targets": [
           {
-            "expr": "sum(files_not_converted_total{job=\"today\"})",
+            "expr": "sum(files_not_converted_total)",
             "legendFormat": "Today"
           }
         ],
@@ -83,7 +83,7 @@
         "type": "stat",
         "targets": [
           {
-            "expr": "sum(files_processed_total{job=\"month\"})",
+            "expr": "sum(pdf_files_processed_total)",
             "legendFormat": "This Month"
           }
         ],
@@ -95,7 +95,7 @@
         "type": "stat",
         "targets": [
           {
-            "expr": "sum(files_processed_total)",
+            "expr": "sum(pdf_files_processed_total)",
             "legendFormat": "Total"
           }
         ],

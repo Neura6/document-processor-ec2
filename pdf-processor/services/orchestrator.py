@@ -29,9 +29,17 @@ from monitoring.metrics import (
     kb_sync_duration,
     queue_depth,
     active_processing_jobs,
+    files_uploaded_to_s3_total,
+    files_converted_to_pdf_total,
+    files_chunked_total,
+    files_not_converted_total,
     start_metrics_server,
     record_processing_time,
     record_file_processed,
+    record_file_uploaded_to_s3,
+    record_file_converted_to_pdf,
+    record_file_chunked,
+    record_file_not_converted,
     record_kb_sync
 )
 
