@@ -74,7 +74,7 @@ class SQSWorker:
                 logger.info(f"Processing file: s3://{bucket_name}/{object_key}")
                 
                 # Process the file through orchestrator
-                success = self.orchestrator.process_file(bucket_name, object_key)
+                success = self.orchestrator.process_single_file(object_key)
                 
                 if success:
                     processed_receipts.append(message['ReceiptHandle'])
