@@ -70,7 +70,7 @@ class SQSWorker:
                             logger.info(f"Processing file: {bucket}/{key}")
                             
                             if bucket == os.getenv('SOURCE_BUCKET'):
-                                success = self.process_single_file(body)
+                                success = self.orchestrator.process_file(bucket, key)
                                 
                                 if success:
                                     logger.info(f"Successfully processed: {key}")
