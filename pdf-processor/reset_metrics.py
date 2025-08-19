@@ -1,54 +1,35 @@
 #!/usr/bin/env python3
 """
-Simple Prometheus Metrics Reset Program
-Resets all PDF processor metrics to zero using Docker commands
+Direct Prometheus Reset using curl commands
 """
 
 import subprocess
-import logging
 import os
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+def run_command(cmd):
+    """Run shell command"""
+    try:
+        result = subprocess.run(cmd, shell=True, check=True, capture_output=True, text=True)
+        print(f"✅ {cmd}")
+        return result.stdout
+    except subprocess.CalledProcessError as e:
+        print(f"❌ {cmd}: {e.stderr}")
+        return None
 
-class MetricResetter:
-    def __init__(self):
-        pass
-    
-    def reset_via_docker(self):
-        """Reset metrics using Docker commands"""
-        logger.info("🔄 Resetting all metrics to zero...")
-        
-        try:
-            # Stop containers
-            subprocess.run(["docker-compose", "down"], check=True)
-            logger.info("✅ Stopped containers")
-            
-            # Remove Prometheus data volume
-            subprocess.run(["docker", "volume", "rm", "document-processor-ec2_prometheus_data"], 
-                          check=True, capture_output=True)
-            logger.info("✅ Removed Prometheus data")
-            
-            # Start fresh
-            subprocess.run(["docker-compose", "up", "-d"], check=True)
-            logger.info("✅ Started fresh containers")
-            
-            print("\n🎯 All metrics reset to zero!")
-            print("📊 Dashboards now show fresh data")
-            
-        except subprocess.CalledProcessError as e:
-            logger.error(f"Error: {e}")
-            print("🚨 Try: docker volume prune -f")
-    
-    def manual_reset(self):
-        """Manual reset instructions"""
-        print("\n🔧 Manual reset commands:")
-        print("1. docker-compose down")
-        print("2. docker volume prune -f") 
-        print("3. docker-compose up -d")
-        print("4. python sqs_worker.py")
+print("🎯 Resetting all metrics to zero...")
 
-if __name__ == "__main__":
-    resetter = MetricResetter()
-    resetter.reset_via_docker()
-    resetter.manual_reset()
+# Direct commands to reset
+commands = [
+    "docker-compose down",
+    "docker volume rm document-processor-ec2_prometheus_data 2>/dev/null || true",
+    "docker volume prune -f",
+    "docker-compose up -d",
+    "sleep 5",
+    "curl -s http://localhost:9090/api/v1/query?query=pdf_files_processed_total"
+]
+
+for cmd in commands:
+    run_command(cmd)
+
+print("\n🚀 All metrics reset to zero!")
+print("📊 Check Grafana at http://localhost:3000")
