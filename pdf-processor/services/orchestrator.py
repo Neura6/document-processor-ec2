@@ -87,25 +87,11 @@ class Orchestrator:
         try:
             self.logger.info(f"Starting processing for: {file_key}")
             
-            # Step 0: Check file format and convert if necessary
-            extension = os.path.splitext(file_key)[1].lower()
-            if self.conversion_service.is_convertible_format(file_key):
-                self.logger.info("Step 0: Converting document to PDF")
-                file_bytes = self.s3_service.get_object(SOURCE_BUCKET, file_key)
-                
-                convert_start = time.time()
-                pdf_content, converted_filename = self.conversion_service.convert_to_pdf(file_bytes, file_key)
-                record_processing_time('conversion', time.time() - convert_start)
-                
-                if pdf_content is None:
-                    self.logger.error(f"Failed to convert {file_key} to PDF")
-                    processing_errors.labels(error_type='conversion_failed', step='conversion').inc()
-                    record_file_processed('failed', folder_name)
-                    return False
-                
-                file_key = converted_filename
-                pdf_stream = io.BytesIO(pdf_content)
-                self.logger.info(f"Successfully converted to {converted_filename}")
+            # Step 1: Get file from S3
+            file_content = self.s3_service.get_object(SOURCE_BUCKET, file_key)
+            if not file_content:
+                processing_errors.labels(error_type='s3', step='download').inc()
+                self.logger.error(f"Failed to download file: {file_key}")
                 return False
             
             # Step 2: Document conversion (if needed)
