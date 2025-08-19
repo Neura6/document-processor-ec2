@@ -65,7 +65,7 @@ class Orchestrator:
     def process_single_file(self, file_key: str) -> bool:
         """Legacy method - use process_single_file_parallel instead"""
         return self.process_single_file_parallel(file_key)
-    
+
     def process_single_file_parallel(self, file_key: str) -> bool:
         """
         Process a single PDF file through the complete pipeline in parallel.
@@ -191,21 +191,21 @@ class Orchestrator:
                 kb_sync_total.labels(status='failed').inc()
                 self.logger.error(f"KB sync failed: {str(e)}")
                 return False
+            
+            # Record overall processing time
+            processing_duration.observe(time.time() - start_time)
+            record_file_processed('success')
+            
+            self.logger.info(f"✅ Successfully processed file: {file_key}")
+            return True
         
-        # Record overall processing time
-        processing_duration.observe(time.time() - start_time)
-        record_file_processed('success')
-        
-        self.logger.info(f"✅ Successfully processed file: {file_key}")
-        return True
-        
-    except Exception as e:
-        processing_errors.labels(error_type='general', step='processing').inc()
-        record_file_processed('failed', folder_name)
-        self.logger.error(f"Error processing {file_key}: {e}")
-        return False
-    finally:
-        active_processing_jobs.dec()
+        except Exception as e:
+            processing_errors.labels(error_type='general', step='processing').inc()
+            record_file_processed('failed', folder_name)
+            self.logger.error(f"Error processing {file_key}: {e}")
+            return False
+        finally:
+            active_processing_jobs.dec()
     
     def get_folder_name_from_path(self, file_path: str) -> str:
         """Extract folder name from file path for KB sync mapping"""
@@ -244,9 +244,6 @@ class Orchestrator:
             self.logger.info("[PROCESSING] ✅ All processing completed - KB sync handled immediately")
             
             # Log final summary
-            self.logger.info(f"[PROCESSING] Processing completed for {folder}: {results}")
-            return results
-            
             self.logger.info(f"[PROCESSING] Processing completed for {folder}: {results}")
             return results
             
