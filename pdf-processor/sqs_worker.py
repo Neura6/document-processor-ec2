@@ -44,7 +44,7 @@ class SQSWorker:
             )
             return int(response['Attributes']['ApproximateNumberOfMessages'])
         except Exception as e:
-            logger.error(f"Error getting queue depth: {e}")
+            self.logger.error(f"Error getting queue depth: {e}")
             return 0
     
     def process_messages(self, messages: List[Dict]) -> List[str]:
