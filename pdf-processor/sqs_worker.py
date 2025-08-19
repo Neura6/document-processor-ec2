@@ -73,15 +73,25 @@ class SQSWorker:
                 
                 logger.info(f"Processing file: s3://{bucket_name}/{object_key}")
                 
-                # Process the file through orchestrator
-                success = self.orchestrator.process_single_file(object_key)
-                
-                if success:
-                    processed_receipts.append(message['ReceiptHandle'])
-                    messages_processed.inc()
-                    logger.info(f"Successfully processed: {object_key}")
-                else:
-                    logger.error(f"Failed to process: {object_key}")
+                try:
+                    # Process the file through orchestrator
+                    success = self.orchestrator.process_single_file(object_key)
+                    
+                    if success:
+                        processed_receipts.append(message['ReceiptHandle'])
+                        messages_processed.inc()
+                        logger.info(f"Successfully processed: {object_key}")
+                    else:
+                        logger.error(f"Failed to process: {object_key}")
+                        
+                except Exception as e:
+                    error_msg = str(e)
+                    if "NoSuchKey" in error_msg or "specified key does not exist" in error_msg:
+                        logger.warning(f"File not found, deleting message: {object_key}")
+                        processed_receipts.append(message['ReceiptHandle'])
+                        messages_processed.inc()
+                    else:
+                        logger.error(f"Error processing {object_key}: {error_msg}")
                 
             except KeyError as e:
                 logger.error(f"Error processing message - missing key: {e}")
