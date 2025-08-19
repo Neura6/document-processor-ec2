@@ -9,13 +9,14 @@ import os
 import time
 import logging
 from typing import List, Dict, Any
+from urllib.parse import unquote_plus
 import PyPDF2
 from services.filename_service import FilenameService
 from services.watermark_service import WatermarkService
 from services.ocr_service import OCRService
 from services.chunking_service import ChunkingService
 from services.s3_service import S3Service
-from services.conversion_service import ConversionService  # ADDED
+from services.conversion_service import ConversionService
 from prometheus_client import Counter, Histogram, Gauge
 from config import AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, SOURCE_BUCKET, CHUNKED_BUCKET
 
@@ -142,9 +143,6 @@ class Orchestrator:
                 # Preserve original folder structure in chunk key
                 base_name = os.path.splitext(file_key)[0]
                 chunk_key = f"{base_name}_page_{page_num}.pdf"
-                
-                # URL decode the object key but preserve spaces
-                object_key = unquote_plus(file_key)
                 
                 upload_start = time.time()
                 if self.s3_service.put_object(self.CHUNKED_BUCKET, chunk_key, output.getvalue()):
