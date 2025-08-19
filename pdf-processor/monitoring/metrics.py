@@ -6,6 +6,12 @@ files_processed_total = Counter('pdf_files_processed_total', 'Total files proces
 processing_duration = Histogram('pdf_processing_duration_seconds', 'Processing time per file', ['step'])
 processing_errors = Counter('pdf_processing_errors_total', 'Total processing errors', ['error_type', 'step'])
 
+# File count metrics
+files_uploaded_to_s3_total = Counter('files_uploaded_to_s3_total', 'Total files uploaded to S3')
+files_converted_to_pdf_total = Counter('files_converted_to_pdf_total', 'Files converted to PDF', ['job'])
+files_chunked_total = Counter('files_chunked_total', 'Original files that have been chunked', ['job'])
+files_not_converted_total = Counter('files_not_converted_total', 'Files not converted from other formats', ['job'])
+
 # S3 metrics
 s3_uploads_total = Counter('s3_uploads_total', 'Total S3 uploads', ['bucket', 'status'])
 s3_upload_duration = Histogram('s3_upload_duration_seconds', 'S3 upload duration')
