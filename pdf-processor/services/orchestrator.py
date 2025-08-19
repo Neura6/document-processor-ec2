@@ -20,7 +20,7 @@ from prometheus_client import Counter, Histogram, Gauge
 from config import AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, SOURCE_BUCKET, CHUNKED_BUCKET
 from prometheus_client import Counter, Histogram, Gauge, start_http_server
 
-# Document Pipeline Metrics
+# Document Pipeline Metrics - FIXED CONSISTENT NAMES
 s3_uploads_total = Counter('document_s3_uploads_total', 'Total files uploaded to S3', ['bucket', 'status'])
 document_conversions_total = Counter('document_conversions_total', 'Total format conversions', ['from_format', 'to_format', 'status'])
 ocr_processing_total = Counter('document_ocr_processing_total', 'Total OCR processing jobs', ['status'])
@@ -189,13 +189,13 @@ class Orchestrator:
                     kb_duration = time.time() - kb_start
                     
                     if kb_result.get('status') == 'COMPLETE':
-                        kb_sync_total.labels(folder=folder_name, status='COMPLETE').inc()
-                        kb_sync_duration.labels(folder=folder_name).observe(kb_duration)
+                        kb_sync_operations_total.labels(status='success').inc()
+                        processing_duration_seconds.labels(stage='kb_sync').observe(kb_duration)
                         self.logger.info(f"KB_SYNC: Successfully synced '{folder_name}' in {kb_duration:.1f}s")
                     else:
                         status = kb_result.get('status')
                         failed_count = len(kb_result.get('failed_files', []))
-                        kb_sync_total.labels(folder=folder_name, status=status).inc()
+                        kb_sync_operations_total.labels(status='failed').inc()
                         self.logger.warning(f"KB_SYNC: Sync completed with status '{status}' ({failed_count} failed files)")
                 else:
                     self.logger.info(f"KB_SYNC: No KB mapping found for folder '{folder_name}', skipping sync")
@@ -206,19 +206,18 @@ class Orchestrator:
                 self.logger.error(f"KB_SYNC: Error during sync for folder '{folder_name}': {str(e)}")
             
             processing_time_total = time.time() - start_time
-            record_processing_time('total', processing_time_total)
-            files_processed_total.labels(status='success', format='pdf', stage='total').inc()
+            processing_duration_seconds.labels(stage='total').observe(processing_time_total)
+            files_processed_total.labels(status='success').inc()
             
             if success_count > 0:
-                record_file_processed('success', folder_name)
                 return True
             else:
-                record_file_processed('failed', folder_name)
+                files_processed_total.labels(status='failed').inc()
                 return False
                 
         except Exception as e:
-            processing_errors.labels(error_type='general', step='processing').inc()
-            record_file_processed('failed', folder_name)
+            processing_errors_total.labels(stage='processing', error_type='general').inc()
+            files_processed_total.labels(status='failed').inc()
             logging.error(f"Error processing {file_key}: {e}")
             return False
         finally:
