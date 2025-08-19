@@ -68,7 +68,7 @@ class SQSWorker:
                     logger.error(f"Invalid S3 event format: {body}")
                     continue
                 
-                # URL decode the object key
+                # URL decode the object key to handle spaces properly
                 object_key = unquote_plus(object_key)
                 
                 logger.info(f"Processing file: s3://{bucket_name}/{object_key}")
