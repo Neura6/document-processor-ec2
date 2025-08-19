@@ -65,7 +65,7 @@ class SQSWorker:
                         # Extract S3 event details
                         records = body.get('Records', [])
                         if not records:
-                            logger.error(f"No Records found in message: {body}")
+                            self.logger.error(f"No Records found in message: {body}")
                             continue
                         
                         s3_record = records[0].get('s3', {})
@@ -73,7 +73,7 @@ class SQSWorker:
                         object_key = s3_record.get('object', {}).get('key')
                         
                         if not bucket_name or not object_key:
-                            logger.error(f"Invalid S3 event format: {body}")
+                            self.logger.error(f"Invalid S3 event format: {body}")
                             continue
                         
                         # URL decode the object key
@@ -84,7 +84,7 @@ class SQSWorker:
                         futures.append(future)
                         
                     except Exception as e:
-                        logger.error(f"Error preparing batch: {e}")
+                        self.logger.error(f"Error preparing batch: {e}")
                 
                 # Wait for all parallel processes to complete
                 for future in as_completed(futures):
@@ -94,16 +94,16 @@ class SQSWorker:
                             processed_receipts.append(result['receipt_handle'])
                             messages_processed.inc()
                         else:
-                            logger.error(f"Failed to process: {result['file_key']}")
+                            self.logger.error(f"Failed to process: {result['file_key']}")
                     except Exception as e:
-                        logger.error(f"Error in parallel processing: {e}")
+                        self.logger.error(f"Error in parallel processing: {e}")
         
         return processed_receipts
     
     def process_single_file_parallel(self, bucket_name: str, object_key: str, message: Dict) -> Dict:
         """Process single file in parallel"""
         try:
-            logger.info(f"Parallel processing: s3://{bucket_name}/{object_key}")
+            self.logger.info(f"Parallel processing: s3://{bucket_name}/{object_key}")
             success = self.orchestrator.process_single_file_parallel(object_key)
             return {
                 'success': success,
@@ -111,8 +111,12 @@ class SQSWorker:
                 'receipt_handle': message['ReceiptHandle']
             }
         except Exception as e:
-            logger.error(f"Error in parallel processing: {e}")
-            return {'success': False, 'file_key': object_key, 'receipt_handle': message['ReceiptHandle']}
+            self.logger.error(f"Error processing {object_key}: {e}")
+            return {
+                'success': False,
+                'file_key': object_key,
+                'receipt_handle': message['ReceiptHandle']
+            }
     
     def delete_messages(self, receipt_handles: List[str]):
         """Delete processed messages from queue"""
@@ -122,9 +126,9 @@ class SQSWorker:
                     QueueUrl=self.queue_url,
                     ReceiptHandle=receipt_handle
                 )
-                logger.info(f"Deleted message: {receipt_handle[:20]}...")
+                self.logger.info(f"Deleted message: {receipt_handle[:20]}...")
             except Exception as e:
-                logger.error(f"Error deleting message: {str(e)}")
+                self.logger.error(f"Failed to delete message: {e}")
     
     def poll_sqs(self, max_messages: int = 10) -> List[Dict]:
         """Poll SQS for messages"""
