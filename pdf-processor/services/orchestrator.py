@@ -139,7 +139,12 @@ class Orchestrator:
                 output.seek(0)
                 
                 page_num = metadata.get('page_number', 1)
-                chunk_key = f"{os.path.splitext(file_key)[0]}_page_{page_num}.pdf"
+                # Preserve original folder structure in chunk key
+                base_name = os.path.splitext(file_key)[0]
+                chunk_key = f"{base_name}_page_{page_num}.pdf"
+                
+                # URL decode the object key but preserve spaces
+                object_key = unquote_plus(file_key)
                 
                 upload_start = time.time()
                 if self.s3_service.put_object(self.CHUNKED_BUCKET, chunk_key, output.getvalue()):
