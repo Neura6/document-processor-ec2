@@ -26,6 +26,11 @@ class SQSWorker:
     def __init__(self):
         self.sqs = boto3.client('sqs', region_name=os.getenv('AWS_REGION', 'us-east-1'))
         self.queue_url = os.getenv('SQS_QUEUE_URL')
+        self.visibility_timeout = int(os.getenv('VISIBILITY_TIMEOUT', '300'))  # 5 minutes
+        self.max_messages = int(os.getenv('MAX_MESSAGES', '10'))
+        self.wait_time = int(os.getenv('WAIT_TIME', '20'))  # Long polling
+        self.max_retries = 2  # Maximum number of retry attempts
+        self.retry_delay = 30  # 30 seconds delay between retries
         self.orchestrator = Orchestrator()
         
         if not self.queue_url:
@@ -45,70 +50,102 @@ class SQSWorker:
             logger.error(f"Error getting queue depth: {e}")
             return 0
     
-    def process_messages(self, messages: List[Dict]) -> List[str]:
-        """Process batch of SQS messages"""
-        processed_receipts = []
-        
-        for message in messages:
-            try:
-                # Parse the message body
-                body = json.loads(message['Body'])
-                
-                # Extract S3 event details
-                records = body.get('Records', [])
-                if not records:
-                    logger.error(f"No Records found in message: {body}")
-                    continue
-                
-                s3_record = records[0].get('s3', {})
-                bucket_name = s3_record.get('bucket', {}).get('name')
-                object_key = s3_record.get('object', {}).get('key')
-                
-                if not bucket_name or not object_key:
-                    logger.error(f"Invalid S3 event format: {body}")
-                    continue
-                
-                # URL decode the object key to handle spaces properly
-                object_key = unquote_plus(object_key)
-                
-                # Log with proper path formatting
-                display_path = object_key.replace('+', ' ')
-                logger.info(f"Processing file: s3://{bucket_name}/{display_path}")
-                
-                # Ensure we pass the properly decoded key to orchestrator
-                object_key = object_key.replace('+', ' ')
-                
+    def process_messages(self):
+        """Process messages from SQS queue"""
+        try:
+            response = self.sqs.receive_message(
+                QueueUrl=self.queue_url,
+                AttributeNames=['All'],
+                MessageAttributeNames=['All'],
+                MaxNumberOfMessages=min(10, self.max_messages),
+                WaitTimeSeconds=self.wait_time,
+                VisibilityTimeout=self.visibility_timeout
+            )
+            
+            messages = response.get('Messages', [])
+            if messages:
+                logger.info(f"Received {len(messages)} messages from queue")
+            
+            for message in messages:
                 try:
-                    # Process the file through orchestrator
-                    success = self.orchestrator.process_single_file(object_key)
-                    if success:
-                        logger.info(f"Successfully processed: {object_key}")
-                    # Don't log anything for missing files - they're handled gracefully
+                    body = json.loads(message['Body'])
+                    records = body.get('Records', [])
+                    
+                    for record in records:
+                        s3_record = record.get('s3', {})
+                        bucket_name = s3_record.get('bucket', {}).get('name')
+                        object_key = s3_record.get('object', {}).get('key')
                         
+                        if not all([bucket_name, object_key]):
+                            logger.error(f"Invalid S3 event format: {body}")
+                            continue
+                        
+                        # URL decode the object key to handle spaces properly
+                        object_key = unquote_plus(object_key)
+                        
+                        # Log with proper path formatting
+                        display_path = object_key.replace('+', ' ')
+                        logger.info(f"Processing file: s3://{bucket_name}/{display_path}")
+                        
+                        # Ensure we pass the properly decoded key to orchestrator
+                        object_key = object_key.replace('+', ' ')
+                        
+                        try:
+                            # Process the file through orchestrator
+                            success = self.orchestrator.process_single_file(object_key)
+                            if success:
+                                logger.info(f"Successfully processed: {object_key}")
+                                self._delete_message(message, object_key)
+                                
+                        except Exception as e:
+                            if 'NoSuchKey' in str(e):
+                                # Get the current receive count, default to 1 if not available
+                                receive_count = int(message.get('Attributes', {}).get('ApproximateReceiveCount', '1'))
+                                
+                                if receive_count <= self.max_retries + 1:  # +1 for initial attempt
+                                    logger.info(f"File not found, will retry ({receive_count}/{self.max_retries + 1}): {object_key}")
+                                    # Don't delete the message, let it go back to the queue
+                                    time.sleep(self.retry_delay)
+                                else:
+                                    logger.warning(f"Max retries ({self.max_retries}) reached, giving up on: {object_key}")
+                                    self._delete_message(message, object_key)
+                            else:
+                                # For other errors, log and delete the message to prevent infinite retries
+                                logger.error(f"Error processing {object_key}: {e}")
+                                self._delete_message(message, object_key)
+                        
+                        messages_processed.inc()
+                
+                except KeyError as e:
+                    logger.error(f"Error processing message - missing key: {e}")
+                    logger.error(f"Message content: {message}")
+                    self._delete_message(message, "unknown")
+                except json.JSONDecodeError as e:
+                    logger.error(f"Error parsing JSON: {e}")
+                    logger.error(f"Raw message body: {message.get('Body', 'No body')}")
+                    self._delete_message(message, "unknown")
                 except Exception as e:
-                    logger.error(f"Error processing {object_key}: {e}")
-                
-                # Always delete the message to prevent infinite retries
-                self.sqs.delete_message(
-                    QueueUrl=self.queue_url,
-                    ReceiptHandle=message['ReceiptHandle']
-                )
-                logger.debug(f"Deleted SQS message for: {object_key}")
-                processed_receipts.append(message['ReceiptHandle'])
-                messages_processed.inc()
-                
-            except KeyError as e:
-                logger.error(f"Error processing message - missing key: {e}")
-                logger.error(f"Message content: {message}")
-            except json.JSONDecodeError as e:
-                logger.error(f"Error parsing JSON: {e}")
-                logger.error(f"Raw message body: {message.get('Body', 'No body')}")
-            except Exception as e:
-                logger.error(f"Error processing message: {e}")
-                logger.error(f"Message content: {message}")
-        
-        return processed_receipts
+                    logger.error(f"Error processing message: {e}")
+                    logger.error(f"Message content: {message}")
+                    self._delete_message(message, "unknown")
+                    
+        except Exception as e:
+            logger.error(f"Error receiving messages: {e}")
+            raise
     
+    def _delete_message(self, message, object_key):
+        """Helper method to delete a message from SQS"""
+        try:
+            self.sqs.delete_message(
+                QueueUrl=self.queue_url,
+                ReceiptHandle=message['ReceiptHandle']
+            )
+            logger.debug(f"Deleted SQS message for: {object_key}")
+        except Exception as e:
+            logger.error(f"Failed to delete message for {object_key}: {e}")
+        
+        return True
+        
     def delete_messages(self, receipt_handles: List[str]):
         """Delete processed messages from queue"""
         for receipt_handle in receipt_handles:
@@ -117,9 +154,10 @@ class SQSWorker:
                     QueueUrl=self.queue_url,
                     ReceiptHandle=receipt_handle
                 )
-                logger.info(f"Deleted message: {receipt_handle[:20]}...")
+                logger.debug(f"Deleted message with receipt handle: {receipt_handle}")
             except Exception as e:
-                logger.error(f"Error deleting message: {str(e)}")
+                logger.error(f"Error deleting message: {e}")
+                raise
     
     def poll_sqs(self, max_messages: int = 10) -> List[Dict]:
         """Poll SQS for messages"""
