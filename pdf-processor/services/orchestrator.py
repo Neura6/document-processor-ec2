@@ -105,7 +105,7 @@ class Orchestrator:
             clean_filename = self.filename_service.clean_filename(file_key)
             
             # Step 4: Remove watermarks
-            cleaned_pdf = self.watermark_service.remove_watermarks(converted_pdf)
+            cleaned_pdf = self.watermark_service.remove_watermarks(converted_pdf, file_key)
             if not cleaned_pdf:
                 processing_errors.labels(error_type='watermark', step='watermark').inc()
                 self.logger.error(f"Failed to remove watermarks: {file_key}")

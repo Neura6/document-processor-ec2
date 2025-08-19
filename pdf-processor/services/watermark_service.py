@@ -26,24 +26,24 @@ class WatermarkService:
         """Check if a page is completely empty."""
         return not page.get_text("text").strip() and not page.get_images() and not page.get_links()
     
-    def remove_watermarks(self, pdf_stream: io.BytesIO, file_key: str) -> Tuple[io.BytesIO, List[int]]:
+    def remove_watermarks(self, pdf_content: bytes, file_key: str = None) -> bytes:
         """
-        Remove watermarks and empty pages from PDF.
+        Remove watermarks from PDF content
         
         Args:
-            pdf_stream: PDF file as BytesIO
-            file_key: File identifier for logging
+            pdf_content: PDF file content as bytes
+            file_key: Original file key for logging (optional)
             
         Returns:
-            Tuple of (modified_pdf_stream, removed_page_numbers)
+            bytes: Cleaned PDF content
         """
-        if pdf_stream is None:
-            logger.error("Received None stream for watermark processing")
-            return None, []
+        if pdf_content is None:
+            self.logger.error("Received None content for watermark processing")
+            return None
         
         try:
-            pdf_stream.seek(0)
-            doc = fitz.open("pdf", pdf_stream.read())
+            pdf_stream = io.BytesIO(pdf_content)
+            doc = fitz.open("pdf", pdf_stream)
             modified = False
             pages_with_terms_indices = set()
             
