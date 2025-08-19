@@ -7,103 +7,99 @@
     "panels": [
       {
         "id": 1,
-        "title": "Files Processed Today",
+        "title": "Files Uploaded to S3 (Pending)",
         "type": "stat",
         "targets": [
           {
-            "expr": "sum(pdf_files_processed_total)",
-            "legendFormat": "Total Files"
+            "expr": "sum(files_uploaded_to_s3_total) - sum(files_processed_total)",
+            "legendFormat": "Pending Files"
           }
         ],
         "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0}
       },
       {
         "id": 2,
-        "title": "Processing Success Rate",
+        "title": "Files Queued for Processing",
         "type": "stat",
         "targets": [
           {
-            "expr": "sum(rate(pdf_files_processed_total{status='success'}[1h])) / sum(rate(pdf_files_processed_total[1h])) * 100",
-            "legendFormat": "Success Rate %"
+            "expr": "queue_depth",
+            "legendFormat": "SQS Queue"
           }
         ],
         "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0}
       },
       {
         "id": 3,
-        "title": "Processing Rate (per hour)",
-        "type": "graph",
-        "targets": [
-          {
-            "expr": "rate(pdf_files_processed_total[5m]) * 3600",
-            "legendFormat": "Files/Hour"
-          }
-        ],
-        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8}
-      },
-      {
-        "id": 4,
-        "title": "Processing Time Distribution",
-        "type": "graph",
-        "targets": [
-          {
-            "expr": "histogram_quantile(0.95, rate(pdf_processing_duration_seconds_bucket[5m]))",
-            "legendFormat": "95th percentile"
-          },
-          {
-            "expr": "histogram_quantile(0.50, rate(pdf_processing_duration_seconds_bucket[5m]))",
-            "legendFormat": "50th percentile"
-          }
-        ],
-        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 16}
-      },
-      {
-        "id": 5,
-        "title": "KB Sync Success Rate",
+        "title": "Files Converted to PDF Today",
         "type": "stat",
         "targets": [
           {
-            "expr": "sum(rate(kb_sync_total{status='COMPLETE'}[1h])) / sum(rate(kb_sync_total[1h])) * 100",
-            "legendFormat": "KB Sync %"
+            "expr": "sum(files_converted_to_pdf_total{job=\"today\"})",
+            "legendFormat": "Today"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8}
+      },
+      {
+        "id": 4,
+        "title": "Files Chunked Today",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "sum(files_chunked_total{job=\"today\"})",
+            "legendFormat": "Today"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8}
+      },
+      {
+        "id": 5,
+        "title": "Files Processed Today",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "sum(files_processed_total{job=\"today\"})",
+            "legendFormat": "Today"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16}
+      },
+      {
+        "id": 6,
+        "title": "Files Not Converted Today",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "sum(files_not_converted_total{job=\"today\"})",
+            "legendFormat": "Today"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16}
+      },
+      {
+        "id": 7,
+        "title": "Files Processed This Month",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "sum(files_processed_total{job=\"month\"})",
+            "legendFormat": "This Month"
           }
         ],
         "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24}
       },
       {
-        "id": 6,
-        "title": "Active Processing Jobs",
+        "id": 8,
+        "title": "Total Files Processed (All Time)",
         "type": "stat",
         "targets": [
           {
-            "expr": "active_processing_jobs",
-            "legendFormat": "Active Jobs"
+            "expr": "sum(files_processed_total)",
+            "legendFormat": "Total"
           }
         ],
         "gridPos": {"h": 8, "w": 12, "x": 12, "y": 24}
-      },
-      {
-        "id": 7,
-        "title": "S3 Upload Success Rate",
-        "type": "stat",
-        "targets": [
-          {
-            "expr": "sum(rate(s3_uploads_total{status='success'}[1h])) / sum(rate(s3_uploads_total[1h])) * 100",
-            "legendFormat": "S3 Upload %"
-          }
-        ],
-        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 32}
-      },
-      {
-        "id": 8,
-        "title": "Processing Errors",
-        "type": "graph",
-        "targets": [
-          {
-            "expr": "rate(pdf_processing_errors_total[5m])",
-            "legendFormat": "Errors/sec"
-          }
-        ],
-        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 32}
       }
     ],
     "time": {
