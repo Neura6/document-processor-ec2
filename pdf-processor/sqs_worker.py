@@ -53,34 +53,34 @@ class SQSWorker:
                 # Parse the message body
                 body = json.loads(message['Body'])
                 
-                # Handle both direct S3 events and SNS-wrapped events
-                if 'Records' in body:
-                    records = body['Records']
+                # Extract S3 event details
+                records = body.get('Records', [])
+                if not records:
+                    logger.error(f"No Records found in message: {body}")
+                    continue
+                
+                s3_record = records[0].get('s3', {})
+                bucket_name = s3_record.get('bucket', {}).get('name')
+                object_key = s3_record.get('object', {}).get('key')
+                
+                if not bucket_name or not object_key:
+                    logger.error(f"Invalid S3 event format: {body}")
+                    continue
+                
+                # URL decode the object key
+                object_key = unquote_plus(object_key)
+                
+                logger.info(f"Processing file: s3://{bucket_name}/{object_key}")
+                
+                # Process the file through orchestrator
+                success = self.orchestrator.process_file(bucket_name, object_key)
+                
+                if success:
+                    processed_receipts.append(message['ReceiptHandle'])
+                    messages_processed.inc()
+                    logger.info(f"Successfully processed: {object_key}")
                 else:
-                    # Direct S3 event
-                    records = [body]
-                
-                for record in records:
-                    if record.get('eventName') == 'ObjectCreated:Put':
-                        s3_info = record.get('s3', {})
-                        bucket = s3_info.get('bucket', {}).get('name')
-                        key = s3_info.get('object', {}).get('key')
-                        
-                        if bucket and key:
-                            logger.info(f"Processing file: {bucket}/{key}")
-                            
-                            if bucket == os.getenv('SOURCE_BUCKET'):
-                                success = self.orchestrator.process_file(bucket, key)
-                                
-                                if success:
-                                    logger.info(f"Successfully processed: {key}")
-                                else:
-                                    logger.error(f"Failed to process: {key}")
-                            else:
-                                logger.info(f"Skipping file from bucket: {bucket}")
-                
-                processed_receipts.append(message['ReceiptHandle'])
-                messages_processed.inc()
+                    logger.error(f"Failed to process: {object_key}")
                 
             except KeyError as e:
                 logger.error(f"Error processing message - missing key: {e}")
