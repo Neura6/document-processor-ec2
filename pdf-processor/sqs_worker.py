@@ -12,6 +12,7 @@ from typing import List, Dict, Any
 import boto3
 from botocore.exceptions import ClientError
 from urllib.parse import unquote_plus
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from services.orchestrator import Orchestrator
 from monitoring.metrics import start_metrics_server, queue_depth, messages_processed
 
@@ -140,21 +141,25 @@ class SQSWorker:
             )
             return response.get('Messages', [])
         except Exception as e:
-            logger.error(f"Error polling SQS: {str(e)}")
+            self.logger.error(f"Error polling SQS: {str(e)}")
             return []
     
     def run(self):
         """Main worker loop with batch processing"""
-        logger.info("Starting SQS Worker...")
+        self.logger.info("Starting SQS Worker...")
         start_metrics_server(port=8000)
         
         while True:
             try:
+                # Update queue depth metrics
+                current_depth = self.get_queue_depth()
+                queue_depth.set(current_depth)
+                
                 # Poll for up to 10 messages
                 messages = self.poll_sqs(max_messages=10)
                 
                 if messages:
-                    logger.info(f"Received {len(messages)} messages from queue")
+                    self.logger.info(f"Received {len(messages)} messages from queue")
                     
                     # Process messages
                     processed_receipts = self.process_messages(messages)
@@ -163,16 +168,15 @@ class SQSWorker:
                     if processed_receipts:
                         self.delete_messages(processed_receipts)
                 else:
+                    self.logger.debug("No messages received, waiting...")
                     time.sleep(5)
                     
-            except Exception as e:
-                logger.error(f"Worker error: {str(e)}")
-                time.sleep(10)
-                
             except KeyboardInterrupt:
-                logger.info("Worker stopped by user")
+                self.logger.info("Worker stopped by user")
                 break
-                time.sleep(5)
+            except Exception as e:
+                self.logger.error(f"Worker error: {str(e)}")
+                time.sleep(10)
 
 if __name__ == "__main__":
     worker = SQSWorker()
