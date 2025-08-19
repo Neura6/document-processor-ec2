@@ -1,0 +1,26 @@
+{
+  "dashboard": {
+    "title": "PDF Processing",
+    "refresh": "30s",
+    "panels": [
+      {
+        "title": "Files Today",
+        "type": "stat",
+        "targets": [{"expr": "increase(pdf_files_processed_total[1d])"}],
+        "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0}
+      },
+      {
+        "title": "Errors Today",
+        "type": "stat",
+        "targets": [{"expr": "increase(processing_errors_total[1d])"}],
+        "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0}
+      },
+      {
+        "title": "Processing Rate",
+        "type": "graph",
+        "targets": [{"expr": "rate(pdf_files_processed_total[5m])"}],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4}
+      }
+    ]
+  }
+}
