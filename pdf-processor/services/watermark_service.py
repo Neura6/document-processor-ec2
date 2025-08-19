@@ -72,9 +72,13 @@ class WatermarkService:
                         if "uri" in link and any(term.lower() in link["uri"].lower() 
                                                for term in WATERMARK_TERMS_TO_REMOVE):
                             modified = True
-                            if "xref" in link:
-                                # Delete the link annotation
-                                page.delete_annot(link["xref"])
+                            # Use the link's xref directly
+                            xref = link.get("xref")
+                            if xref:
+                                try:
+                                    page.delete_annot(xref)
+                                except Exception as e:
+                                    self.logger.warning(f"Could not delete link annotation: {e}")
                 
                 except Exception as e:
                     self.logger.warning(f"Error processing links on page {i+1}: {e}")
