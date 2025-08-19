@@ -111,7 +111,7 @@ class Orchestrator:
             self.logger.info("Step 2: Removing watermarks")
             watermark_start = time.time()
             watermark_result = self.watermark_service.remove_watermarks(pdf_stream, file_key)
-            record_processing_time('watermark_removal', time.time() - watermark_start)
+            processing_duration_seconds.labels(stage='watermark_removal').observe(time.time() - watermark_start)
             
             if watermark_result[0]:
                 pdf_stream = watermark_result[0]
@@ -125,7 +125,7 @@ class Orchestrator:
             self.logger.info("Step 3: Applying OCR")
             ocr_start = time.time()
             ocr_result = self.ocr_service.apply_ocr_to_pdf(pdf_stream, file_key)
-            record_processing_time('ocr', time.time() - ocr_start)
+            processing_duration_seconds.labels(stage='ocr').observe(time.time() - ocr_start)
             
             if ocr_result[0]:
                 pdf_stream = ocr_result[0]
@@ -139,14 +139,13 @@ class Orchestrator:
             self.logger.info("Step 4: Chunking PDF")
             chunk_start = time.time()
             chunks = self.chunking_service.chunk_pdf(pdf_stream, file_key)
-            record_processing_time('chunking', time.time() - chunk_start)
+            processing_duration_seconds.labels(stage='chunking').observe(time.time() - chunk_start)
             chunks_created_total.inc(len(chunks))
             
             if not chunks:
                 self.logger.error("Failed to chunk PDF")
-                processing_errors.labels(error_type='chunking_failed', step='chunking').inc()
-                chunking_errors_total.inc()
-                record_file_processed('failed', folder_name)
+                processing_errors_total.labels(stage='chunking', error_type='chunking_failed').inc()
+                files_processed_total.labels(status='failed').inc()
                 return False
             
             # Step 5: Upload chunks to S3
