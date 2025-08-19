@@ -70,7 +70,7 @@ class SQSWorker:
                             logger.info(f"Processing file: {bucket}/{key}")
                             
                             if bucket == os.getenv('SOURCE_BUCKET'):
-                                success = self.orchestrator.process_single_file(key)
+                                success = self.process_single_file(body)
                                 
                                 if success:
                                     logger.info(f"Successfully processed: {key}")
@@ -102,32 +102,32 @@ class SQSWorker:
                     QueueUrl=self.queue_url,
                     ReceiptHandle=receipt_handle
                 )
-            except ClientError as e:
-                logger.error(f"Error deleting message: {e}")
+                logger.info(f"Deleted message: {receipt_handle[:20]}...")
+            except Exception as e:
+                logger.error(f"Error deleting message: {str(e)}")
+    
+    def poll_sqs(self, max_messages: int = 10) -> List[Dict]:
+        """Poll SQS for messages"""
+        try:
+            response = self.sqs.receive_message(
+                QueueUrl=self.queue_url,
+                MaxNumberOfMessages=max_messages,
+                WaitTimeSeconds=10
+            )
+            return response.get('Messages', [])
+        except Exception as e:
+            logger.error(f"Error polling SQS: {str(e)}")
+            return []
     
     def run(self):
-        """Main worker loop"""
+        """Main worker loop with batch processing"""
         logger.info("Starting SQS Worker...")
-        
-        # Start metrics server
         start_metrics_server(port=8000)
-        logger.info("Metrics server started on port 8000")
         
         while True:
             try:
-                # Update queue depth metric
-                current_depth = self.get_queue_depth()
-                queue_depth.set(current_depth)
-                
-                # Poll for messages
-                response = self.sqs.receive_message(
-                    QueueUrl=self.queue_url,
-                    MaxNumberOfMessages=10,
-                    WaitTimeSeconds=20,
-                    VisibilityTimeout=300
-                )
-                
-                messages = response.get('Messages', [])
+                # Poll for up to 10 messages
+                messages = self.poll_sqs(max_messages=10)
                 
                 if messages:
                     logger.info(f"Received {len(messages)} messages from queue")
@@ -138,16 +138,16 @@ class SQSWorker:
                     # Delete processed messages
                     if processed_receipts:
                         self.delete_messages(processed_receipts)
-                        logger.info(f"Deleted {len(processed_receipts)} processed messages")
-                
-                # Small delay to prevent tight loop
-                time.sleep(1)
+                else:
+                    time.sleep(5)
+                    
+            except Exception as e:
+                logger.error(f"Worker error: {str(e)}")
+                time.sleep(10)
                 
             except KeyboardInterrupt:
                 logger.info("Worker stopped by user")
                 break
-            except Exception as e:
-                logger.error(f"Error in worker loop: {e}")
                 time.sleep(5)
 
 if __name__ == "__main__":
