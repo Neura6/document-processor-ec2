@@ -112,6 +112,18 @@
       },
       {
         "id": 9,
+        "title": "📊 SQS Queue Depth",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "aws_sqs_approximate_number_of_messages_visible{queue_name=~\"pdf-processing-queue.*\"}",
+            "legendFormat": "Messages in Queue"
+          }
+        ],
+        "gridPos": {"h": 4, "w": 6, "x": 0, "y": 20}
+      },
+      {
+        "id": 10,
         "title": "❌ Errors",
         "type": "table",
         "targets": [

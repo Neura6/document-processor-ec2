@@ -168,22 +168,8 @@ class SQSWorker:
         logger.info("Starting SQS Worker...")
         start_metrics_server(port=8000)
         
-        last_metrics_update = 0
-        metrics_update_interval = 15  # Update metrics every 15 seconds
-        
         while True:
             try:
-                # Update queue depth metric periodically
-                current_time = time.time()
-                if current_time - last_metrics_update >= metrics_update_interval:
-                    try:
-                        depth = self.get_queue_depth()
-                        queue_depth.set(depth)
-                        logger.debug(f"Updated queue depth: {depth}")
-                    except Exception as e:
-                        logger.error(f"Error updating queue metrics: {e}")
-                    last_metrics_update = current_time
-                
                 # Poll for up to 10 messages
                 messages = self.poll_sqs(max_messages=10)
                 
@@ -206,6 +192,7 @@ class SQSWorker:
             except KeyboardInterrupt:
                 logger.info("Worker stopped by user")
                 break
+                time.sleep(5)
     
 
 if __name__ == "__main__":
