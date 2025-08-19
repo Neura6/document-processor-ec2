@@ -71,7 +71,12 @@ class SQSWorker:
                 # URL decode the object key to handle spaces properly
                 object_key = unquote_plus(object_key)
                 
-                logger.info(f"Processing file: s3://{bucket_name}/{object_key}")
+                # Log with proper path formatting
+                display_path = object_key.replace('+', ' ')
+                logger.info(f"Processing file: s3://{bucket_name}/{display_path}")
+                
+                # Ensure we pass the properly decoded key to orchestrator
+                object_key = object_key.replace('+', ' ')
                 
                 try:
                     # Process the file through orchestrator
