@@ -168,13 +168,26 @@ class SQSWorker:
         logger.info("Starting SQS Worker...")
         start_metrics_server(port=8000)
         
+        last_metrics_update = 0
+        
         while True:
             try:
+                # Update queue depth metric every 5 seconds
+                current_time = time.time()
+                if current_time - last_metrics_update >= 5:  # Update every 5 seconds
+                    try:
+                        depth = self.get_queue_depth()
+                        queue_depth.set(depth)
+                        logger.debug(f"Current queue depth: {depth}")
+                        last_metrics_update = current_time
+                    except Exception as e:
+                        logger.error(f"Error updating queue depth metric: {e}")
+                
                 # Poll for up to 10 messages
                 messages = self.poll_sqs(max_messages=10)
                 
                 if messages:
-                    logger.info(f"Received {len(messages)} messages from queue")
+                    logger.info(f"Processing {len(messages)} messages from queue (queue depth: {self.get_queue_depth()})")
                     
                     # Process messages
                     processed_receipts = self.process_messages(messages)
