@@ -16,8 +16,7 @@ from services.watermark_service import WatermarkService
 from services.ocr_service import OCRService
 from services.chunking_service import ChunkingService
 from services.s3_service import S3Service
-from services.conversion_service import ConversionService
-import logging
+from prometheus_client import Counter, Histogram, Gauge
 from config import AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, SOURCE_BUCKET, CHUNKED_BUCKET
 from monitoring.metrics import (
     files_processed_total,
@@ -34,6 +33,23 @@ from monitoring.metrics import (
     record_file_processed,
     record_kb_sync
 )
+
+# Prometheus metrics
+files_processed_total = Counter('pdf_files_processed_total', 'Total files processed', ['status', 'format', 'stage'])
+processing_duration = Histogram('pdf_processing_duration_seconds', 'Time spent processing files', ['stage'])
+processing_errors = Counter('pdf_processing_errors_total', 'Total processing errors', ['stage', 'error_type'])
+s3_uploads_total = Counter('pdf_s3_uploads_total', 'Total S3 uploads', ['bucket', 'status'])
+s3_upload_duration = Histogram('pdf_s3_upload_duration_seconds', 'Time spent uploading to S3')
+kb_sync_total = Counter('pdf_kb_sync_total', 'Total KB sync operations', ['status'])
+kb_sync_duration = Histogram('pdf_kb_sync_duration_seconds', 'Time spent syncing to KB')
+conversions_total = Counter('pdf_conversions_total', 'Total file conversions', ['from_format', 'to_format', 'status'])
+oct_failures_total = Counter('pdf_ocr_failures_total', 'Total OCR failures')
+chunks_created_total = Counter('pdf_chunks_created_total', 'Total chunks created')
+chunking_errors_total = Counter('pdf_chunking_errors_total', 'Total chunking errors')
+s3_write_errors_total = Counter('pdf_s3_write_errors_total', 'Total S3 write errors')
+kb_sync_failures_total = Counter('pdf_kb_sync_failures_total', 'Total KB sync failures')
+file_size_bytes = Gauge('pdf_file_size_bytes', 'Size of processed files')
+active_processing_jobs = Gauge('pdf_active_processing_jobs', 'Currently active processing jobs')
 
 class Orchestrator:
     """Main orchestrator for PDF processing workflow."""
@@ -92,10 +108,12 @@ class Orchestrator:
                 convert_start = time.time()
                 pdf_content, converted_filename = self.conversion_service.convert_to_pdf(file_bytes, file_key)
                 record_processing_time('conversion', time.time() - convert_start)
+                conversions_total.labels(from_format=extension, to_format='pdf', status='success').inc()
                 
                 if pdf_content is None:
                     self.logger.error(f"Failed to convert {file_key} to PDF")
                     processing_errors.labels(error_type='conversion_failed', step='conversion').inc()
+                    conversions_total.labels(from_format=extension, to_format='pdf', status='failed').inc()
                     record_file_processed('failed', folder_name)
                     return False
                 
@@ -143,10 +161,12 @@ class Orchestrator:
             chunk_start = time.time()
             chunks = self.chunking_service.chunk_pdf(pdf_stream, file_key)
             record_processing_time('chunking', time.time() - chunk_start)
+            chunks_created_total.inc(len(chunks))
             
             if not chunks:
                 self.logger.error("Failed to chunk PDF")
                 processing_errors.labels(error_type='chunking_failed', step='chunking').inc()
+                chunking_errors_total.inc()
                 record_file_processed('failed', folder_name)
                 return False
             
@@ -170,6 +190,7 @@ class Orchestrator:
                     self.logger.info(f"Uploaded chunk: {chunk_key}")
                 else:
                     s3_uploads_total.labels(bucket=CHUNKED_BUCKET, status='failed').inc()
+                    s3_write_errors_total.inc()
             
             # Step 6: Sync to Knowledge Base immediately after upload
             folder_name = file_key.split('/')[0] if '/' in file_key else 'default'
@@ -203,10 +224,12 @@ class Orchestrator:
                     
             except Exception as e:
                 kb_sync_total.labels(folder=folder_name, status='failed').inc()
+                kb_sync_failures_total.inc()
                 self.logger.error(f"KB_SYNC: Error during sync for folder '{folder_name}': {str(e)}")
             
             processing_time_total = time.time() - start_time
             record_processing_time('total', processing_time_total)
+            files_processed_total.labels(status='success', format='pdf', stage='total').inc()
             
             if success_count > 0:
                 record_file_processed('success', folder_name)
