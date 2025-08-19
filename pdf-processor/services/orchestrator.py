@@ -106,74 +106,66 @@ class Orchestrator:
                 file_key = converted_filename
                 pdf_stream = io.BytesIO(pdf_content)
                 self.logger.info(f"Successfully converted to {converted_filename}")
-            else:
-                pdf_bytes = self.s3_service.get_object(SOURCE_BUCKET, file_key)
-                pdf_stream = io.BytesIO(pdf_bytes)
-            
-            # Step 1: Clean filename if needed
-            self.logger.info("Step 1: Cleaning filename")
-            cleaned_key = self.filename_service.clean_filename(file_key)
-            
-            # Step 2: Remove watermarks
-            self.logger.info("Step 2: Removing watermarks")
-            watermark_start = time.time()
-            watermark_result = self.watermark_service.remove_watermarks(pdf_stream, file_key)
-            record_processing_time('watermark_removal', time.time() - watermark_start)
-            
-            if watermark_result[0]:
-                pdf_stream = watermark_result[0]
-                if watermark_result[1]:
-                    self.logger.info(f"Removed pages: {watermark_result[1]}")
-                self.logger.info("Watermark processing completed")
-            else:
-                self.logger.info("No watermarks found, continuing")
-            
-            # Step 3: Apply OCR if needed
-            self.logger.info("Step 3: Applying OCR")
-            ocr_start = time.time()
-            ocr_result = self.ocr_service.apply_ocr_to_pdf(pdf_stream, file_key)
-            record_processing_time('ocr', time.time() - ocr_start)
-            
-            if ocr_result[0]:
-                pdf_stream = ocr_result[0]
-                if ocr_result[1]:
-                    self.logger.info(f"OCR applied to pages: {ocr_result[1]}")
-                self.logger.info("OCR processing completed")
-            else:
-                self.logger.info("No OCR needed, continuing")
-            
-            # Step 4: Chunk PDF
-            self.logger.info("Step 4: Chunking PDF")
-            chunk_start = time.time()
-            chunks = self.chunking_service.chunk_pdf(pdf_stream, file_key)
-            record_processing_time('chunking', time.time() - chunk_start)
-            
-            if not chunks:
-                self.logger.error("Failed to chunk PDF")
-                processing_errors.labels(error_type='chunking_failed', step='chunking').inc()
-                record_file_processed('failed', folder_name)
                 return False
             
-            # Step 5: Upload chunks to S3
-            self.logger.info("Step 5: Uploading chunks to S3")
-            success_count = 0
+            # Step 2: Document conversion (if needed)
+            converted_pdf = self.conversion_service.convert_to_pdf(file_content, file_key)
+            if not converted_pdf:
+                processing_errors.labels(error_type='conversion', step='convert').inc()
+                self.logger.error(f"Failed to convert file: {file_key}")
+                return False
             
-            for writer, metadata in chunks:
-                output = io.BytesIO()
-                writer.write(output)
-                output.seek(0)
+            # Step 3: Clean filename
+            clean_filename = self.filename_service.clean_filename(file_key)
+            
+            # Step 4: Remove watermarks
+            cleaned_pdf = self.watermark_service.remove_watermarks(converted_pdf)
+            if not cleaned_pdf:
+                processing_errors.labels(error_type='watermark', step='watermark').inc()
+                self.logger.error(f"Failed to remove watermarks: {file_key}")
+                return False
+            
+            # Step 5: OCR and chunking
+            try:
+                pages = self.ocr_service.extract_text(cleaned_pdf)
+                if not pages:
+                    processing_errors.labels(error_type='ocr', step='ocr').inc()
+                    self.logger.error(f"Failed OCR processing: {file_key}")
+                    return False
                 
-                page_num = metadata.get('page_number', 1)
-                chunk_key = f"{os.path.splitext(file_key)[0]}_page_{page_num}.pdf"
+                # Chunk into pages
+                chunks = self.chunking_service.chunk_document(pages, clean_filename)
+                if not chunks:
+                    processing_errors.labels(error_type='chunking', step='chunking').inc()
+                    self.logger.error(f"Failed chunking: {file_key}")
+                    return False
                 
-                upload_start = time.time()
-                if self.s3_service.put_object(CHUNKED_BUCKET, chunk_key, output.getvalue()):
-                    success_count += 1
-                    s3_uploads_total.labels(bucket=CHUNKED_BUCKET, status='success').inc()
-                    s3_upload_duration.observe(time.time() - upload_start)
-                    self.logger.info(f"Uploaded chunk: {chunk_key}")
-                else:
-                    s3_uploads_total.labels(bucket=CHUNKED_BUCKET, status='failed').inc()
+                # Upload chunks to S3
+                success_count = 0
+                for chunk in chunks:
+                    chunk_key = f"{folder_name}/{chunk['filename']}"
+                    
+                    # Convert chunk to bytes for upload
+                    output = io.BytesIO()
+                    chunk['content'].save(output, format='PDF')
+                    output.seek(0)
+                    
+                    upload_start = time.time()
+                    if self.s3_service.put_object(CHUNKED_BUCKET, chunk_key, output.getvalue()):
+                        success_count += 1
+                        s3_uploads_total.labels(bucket=CHUNKED_BUCKET, status='success').inc()
+                        s3_upload_duration.observe(time.time() - upload_start)
+                        self.logger.info(f"Uploaded chunk: {chunk_key}")
+                    else:
+                        s3_uploads_total.labels(bucket=CHUNKED_BUCKET, status='failed').inc()
+                
+                if success_count == 0:
+                    return False
+                
+            except Exception as e:
+                processing_errors.labels(error_type='processing', step='chunking').inc()
+                self.logger.error(f"Error during OCR/chunking: {str(e)}")
+                return False
             
             # Step 6: Sync to Knowledge Base in parallel
             folder_name = file_key.split('/')[0] if '/' in file_key else 'default'
