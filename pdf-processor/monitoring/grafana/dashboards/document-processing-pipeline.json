@@ -2,309 +2,53 @@
   "dashboard": {
     "id": null,
     "title": "Document Processing Pipeline Dashboard",
-    "tags": ["document-processing", "aws", "pipeline", "monitoring"],
+    "tags": ["document-processing", "prometheus", "pipeline"],
     "timezone": "browser",
     "refresh": "30s",
-    "time": {
-      "from": "now-1h",
-      "to": "now"
-    },
-    "templating": {
-      "list": [
-        {
-          "name": "environment",
-          "type": "custom",
-          "query": "dev,staging,prod",
-          "current": { "text": "prod", "value": "prod" }
-        },
-        {
-          "name": "s3_bucket",
-          "type": "custom",
-          "query": "rules-repository,chunked-rules-repository",
-          "current": { "text": "rules-repository", "value": "rules-repository" }
-        },
-        {
-          "name": "sqs_queue",
-          "type": "custom",
-          "query": "pdf-processing-queue",
-          "current": { "text": "pdf-processing-queue", "value": "pdf-processing-queue" }
-        },
-        {
-          "name": "ec2_instance",
-          "type": "custom",
-          "query": "i-1234567890abcdef0",
-          "current": { "text": "i-1234567890abcdef0", "value": "i-1234567890abcdef0" }
-        }
-      ]
-    },
-    "rows": [
+    "panels": [
       {
-        "title": "S3 Upload Stage",
-        "panels": [
+        "title": "Files Processed",
+        "type": "graph",
+        "targets": [
           {
-            "title": "Files Uploaded Per Minute",
-            "type": "graph",
-            "targets": [
-              {
-                "expr": "SUM(COUNT(ObjectsCreated) FROM AWS/S3 WHERE BucketName = '$s3_bucket' AND EventName = 'ObjectCreated:Put')",
-                "legendFormat": "Upload Rate"
-              }
-            ],
-            "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0}
-          },
-          {
-            "title": "S3 Upload Errors",
-            "type": "stat",
-            "targets": [
-              {
-                "expr": "SUM(HTTPCode_Target_5XX_Count) FROM AWS/S3 WHERE BucketName = '$s3_bucket'",
-                "legendFormat": "5xx Errors"
-              }
-            ],
-            "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
-            "color": {"mode": "thresholds", "thresholds": [{"color": "green"}, {"color": "red"}]}
-          }
-        ]
-      },
-      {
-        "title": "SQS Trigger Stage",
-        "panels": [
-          {
-            "title": "Messages in Queue",
-            "type": "stat",
-            "targets": [
-              {
-                "expr": "AWS/SQS ApproximateNumberOfMessagesVisible WHERE QueueName = '$sqs_queue'",
-                "legendFormat": "Visible Messages"
-              }
-            ],
-            "gridPos": {"h": 8, "w": 8, "x": 0, "y": 8}
-          },
-          {
-            "title": "Messages Deleted",
-            "type": "stat",
-            "targets": [
-              {
-                "expr": "AWS/SQS NumberOfMessagesDeleted WHERE QueueName = '$sqs_queue'",
-                "legendFormat": "Deleted Messages"
-              }
-            ],
-            "gridPos": {"h": 8, "w": 8, "x": 8, "y": 8}
-          },
-          {
-            "title": "Age of Oldest Message",
-            "type": "stat",
-            "targets": [
-              {
-                "expr": "AWS/SQS ApproximateAgeOfOldestMessage WHERE QueueName = '$sqs_queue'",
-                "legendFormat": "Oldest Age (secs)"
-              }
-            ],
-            "gridPos": {"h": 8, "w": 8, "x": 16, "y": 8}
-          }
-        ]
-      },
-      {
-        "title": "EC2 Processing Stage",
-        "panels": [
-          {
-            "title": "CPU Utilization",
-            "type": "graph",
-            "targets": [
-              {
-                "expr": "AWS/EC2 CPUUtilization WHERE InstanceId = '$ec2_instance'",
-                "legendFormat": "CPU %"
-              }
-            ],
-            "gridPos": {"h": 8, "w": 8, "x": 0, "y": 16}
-          },
-          {
-            "title": "Memory Usage",
-            "type": "graph",
-            "targets": [
-              {
-                "expr": "AWS/EC2 MemoryUtilization WHERE InstanceId = '$ec2_instance'",
-                "legendFormat": "Memory %"
-              }
-            ],
-            "gridPos": {"h": 8, "w": 8, "x": 8, "y": 16}
-          },
-          {
-            "title": "Failed Jobs",
-            "type": "stat",
-            "targets": [
-              {
-                "expr": "pdf_processing_failed_jobs_total{environment='$environment'}",
-                "legendFormat": "Failed Jobs"
-              }
-            ],
-            "gridPos": {"h": 8, "w": 8, "x": 16, "y": 16}
-          }
-        ]
-      },
-      {
-        "title": "Conversion & OCR Stage",
-        "panels": [
-          {
-            "title": "Conversions by Format",
-            "type": "table",
-            "targets": [
-              {
-                "expr": "pdf_conversions_total{environment='$environment'}",
-                "legendFormat": "{{format}}"
-              }
-            ],
-            "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24}
-          },
-          {
-            "title": "OCR Failures",
-            "type": "stat",
-            "targets": [
-              {
-                "expr": "pdf_ocr_failures_total{environment='$environment'}",
-                "legendFormat": "OCR Failures"
-              }
-            ],
-            "gridPos": {"h": 8, "w": 12, "x": 12, "y": 24}
-          }
-        ]
-      },
-      {
-        "title": "Chunking Stage",
-        "panels": [
-          {
-            "title": "Chunks Created Per File",
-            "type": "graph",
-            "targets": [
-              {
-                "expr": "pdf_chunks_created_total{environment='$environment'}",
-                "legendFormat": "Chunks Created"
-              }
-            ],
-            "gridPos": {"h": 8, "w": 12, "x": 0, "y": 32}
-          },
-          {
-            "title": "Chunking Errors",
-            "type": "stat",
-            "targets": [
-              {
-                "expr": "pdf_chunking_errors_total{environment='$environment'}",
-                "legendFormat": "Chunking Errors"
-              }
-            ],
-            "gridPos": {"h": 8, "w": 12, "x": 12, "y": 32}
-          }
-        ]
-      },
-      {
-        "title": "Chunk Repository Stage",
-        "panels": [
-          {
-            "title": "Files in Output Bucket",
-            "type": "stat",
-            "targets": [
-              {
-                "expr": "SUM(COUNT(ObjectsCreated) FROM AWS/S3 WHERE BucketName = 'chunked-rules-repository')",
-                "legendFormat": "Output Files"
-              }
-            ],
-            "gridPos": {"h": 8, "w": 12, "x": 0, "y": 40}
-          },
-          {
-            "title": "Write Errors",
-            "type": "stat",
-            "targets": [
-              {
-                "expr": "pdf_s3_write_errors_total{environment='$environment'}",
-                "legendFormat": "Write Errors"
-              }
-            ],
-            "gridPos": {"h": 8, "w": 12, "x": 12, "y": 40}
-          }
-        ]
-      },
-      {
-        "title": "Knowledge Base Sync Stage",
-        "panels": [
-          {
-            "title": "Sync Success Rate",
-            "type": "stat",
-            "targets": [
-              {
-                "expr": "(pdf_kb_sync_success_total{environment='$environment'} / (pdf_kb_sync_success_total{environment='$environment'} + pdf_kb_sync_failure_total{environment='$environment'})) * 100",
-                "legendFormat": "Success Rate %"
-              }
-            ],
-            "gridPos": {"h": 8, "w": 12, "x": 0, "y": 48}
-          },
-          {
-            "title": "Sync Latency",
-            "type": "graph",
-            "targets": [
-              {
-                "expr": "pdf_kb_sync_duration_seconds{environment='$environment'}",
-                "legendFormat": "Sync Duration"
-              }
-            ],
-            "gridPos": {"h": 8, "w": 12, "x": 12, "y": 48}
-          }
-        ]
-      }
-    ],
-    "alerts": [
-      {
-        "name": "SQS Queue Age Alert",
-        "conditions": [
-          {
-            "query": {
-              "params": ["A", "5m", "now"],
-              "model": {
-                "expr": "AWS/SQS ApproximateAgeOfOldestMessage WHERE QueueName = '$sqs_queue'",
-                "refId": "A"
-              }
-            },
-            "reducer": { "type": "last" },
-            "evaluator": { "params": [300], "type": "gt" }
+            "expr": "rate(pdf_files_processed_total[5m])",
+            "legendFormat": "Files/min"
           }
         ],
-        "message": "SQS queue age is greater than 5 minutes",
-        "frequency": "1m"
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0}
       },
       {
-        "name": "EC2 CPU Alert",
-        "conditions": [
+        "title": "Processing Errors",
+        "type": "stat",
+        "targets": [
           {
-            "query": {
-              "params": ["A", "5m", "now"],
-              "model": {
-                "expr": "AWS/EC2 CPUUtilization WHERE InstanceId = '$ec2_instance'",
-                "refId": "A"
-              }
-            },
-            "reducer": { "type": "avg" },
-            "evaluator": { "params": [80], "type": "gt" }
+            "expr": "processing_errors_total",
+            "legendFormat": "Total Errors"
           }
         ],
-        "message": "EC2 CPU utilization is above 80% for 5 minutes",
-        "frequency": "5m"
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0}
       },
       {
-        "name": "KB Sync Failure Alert",
-        "conditions": [
+        "title": "Queue Depth",
+        "type": "stat",
+        "targets": [
           {
-            "query": {
-              "params": ["A", "10m", "now"],
-              "model": {
-                "expr": "pdf_kb_sync_failure_total{environment='$environment'}",
-                "refId": "A"
-              }
-            },
-            "reducer": { "type": "sum" },
-            "evaluator": { "params": [1], "type": "gt" }
+            "expr": "queue_depth",
+            "legendFormat": "Messages"
           }
         ],
-        "message": "Knowledge Base sync failures detected",
-        "frequency": "10m"
+        "gridPos": {"h": 8, "w": 8, "x": 0, "y": 8}
+      },
+      {
+        "title": "Processing Duration",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(processing_duration_seconds_bucket[5m]))",
+            "legendFormat": "95th percentile"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 16, "x": 8, "y": 8}
       }
     ]
   }
