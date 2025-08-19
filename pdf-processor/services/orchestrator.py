@@ -1,6 +1,5 @@
 """
-Main Orchestrator Service
-Coordinates all services to process PDF files end-to-end.
+Complete Fixed Orchestrator Service with Working Metrics
 """
 
 import sys
@@ -16,11 +15,11 @@ from services.watermark_service import WatermarkService
 from services.ocr_service import OCRService
 from services.chunking_service import ChunkingService
 from services.s3_service import S3Service
+from services.conversion_service import ConversionService  # ADDED
 from prometheus_client import Counter, Histogram, Gauge
 from config import AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, SOURCE_BUCKET, CHUNKED_BUCKET
-from prometheus_client import Counter, Histogram, Gauge, start_http_server
 
-# Document Pipeline Metrics - FIXED CONSISTENT NAMES
+# Document Pipeline Metrics - EXACT MATCHES FOR DASHBOARD
 s3_uploads_total = Counter('document_s3_uploads_total', 'Total files uploaded to S3', ['bucket', 'status'])
 document_conversions_total = Counter('document_conversions_total', 'Total format conversions', ['from_format', 'to_format', 'status'])
 ocr_processing_total = Counter('document_ocr_processing_total', 'Total OCR processing jobs', ['status'])
@@ -36,7 +35,7 @@ class Orchestrator:
     
     def __init__(self):
         self.logger = logging.getLogger(__name__)
-        self.conversion_service = ConversionService()
+        self.conversion_service = ConversionService()  # FIXED
         self.filename_service = FilenameService()
         self.watermark_service = WatermarkService()
         self.ocr_service = OCRService()
@@ -57,101 +56,74 @@ class Orchestrator:
             ]
         )
         self.logger.info("Orchestrator initialized successfully")
-    
+
     def process_single_file(self, file_key: str) -> bool:
-        """
-        Process a single PDF file through the complete pipeline.
-        
-        Args:
-            file_key: S3 object key to process
-            
-        Returns:
-            bool: True if processing successful, False otherwise
-        """
+        """Process a single PDF file through the complete pipeline."""
         active_processing_jobs.inc()
         start_time = time.time()
         folder_name = file_key.split('/')[0] if '/' in file_key else 'default'
         
-        # URL decode the file key to handle spaces and special characters
-        from urllib.parse import unquote_plus
-        file_key = unquote_plus(file_key)
-        
         try:
             self.logger.info(f"Starting processing for: {file_key}")
             
-            # Step 0: Check file format and convert if necessary
+            # Track S3 download
+            download_start = time.time()
+            file_bytes = self.s3_service.get_object(self.SOURCE_BUCKET, file_key)
+            processing_duration_seconds.labels(stage='s3_download').observe(time.time() - download_start)
+            
             extension = os.path.splitext(file_key)[1].lower()
+            pdf_stream = io.BytesIO(file_bytes)
+            
+            # Format conversion if needed
             if self.conversion_service.is_convertible_format(file_key):
-                self.logger.info("Step 0: Converting document to PDF")
-                file_bytes = self.s3_service.get_object(SOURCE_BUCKET, file_key)
-                
                 convert_start = time.time()
                 pdf_content, converted_filename = self.conversion_service.convert_to_pdf(file_bytes, file_key)
                 processing_duration_seconds.labels(stage='conversion').observe(time.time() - convert_start)
-                document_conversions_total.labels(from_format=extension, to_format='pdf', status='success').inc()
                 
                 if pdf_content is None:
-                    self.logger.error(f"Failed to convert {file_key} to PDF")
                     processing_errors_total.labels(stage='conversion', error_type='conversion_failed').inc()
                     document_conversions_total.labels(from_format=extension, to_format='pdf', status='failed').inc()
                     files_processed_total.labels(status='failed').inc()
                     return False
                 
-                file_key = converted_filename
+                document_conversions_total.labels(from_format=extension, to_format='pdf', status='success').inc()
                 pdf_stream = io.BytesIO(pdf_content)
-                self.logger.info(f"Successfully converted to {converted_filename}")
-                pdf_bytes = self.s3_service.get_object(SOURCE_BUCKET, file_key)
-                pdf_stream = io.BytesIO(pdf_bytes)
-            
-            # Step 1: Clean filename if needed
-            self.logger.info("Step 1: Cleaning filename")
-            cleaned_key = self.filename_service.clean_filename(file_key)
-            
-            # Step 2: Remove watermarks
-            self.logger.info("Step 2: Removing watermarks")
+                self.logger.info(f"Successfully converted {file_key} to PDF")
+
+            # Watermark removal
             watermark_start = time.time()
             watermark_result = self.watermark_service.remove_watermarks(pdf_stream, file_key)
             processing_duration_seconds.labels(stage='watermark_removal').observe(time.time() - watermark_start)
             
             if watermark_result[0]:
                 pdf_stream = watermark_result[0]
-                if watermark_result[1]:
-                    self.logger.info(f"Removed pages: {watermark_result[1]}")
                 self.logger.info("Watermark processing completed")
-            else:
-                self.logger.info("No watermarks found, continuing")
-            
-            # Step 3: Apply OCR if needed
-            self.logger.info("Step 3: Applying OCR")
+
+            # OCR processing
             ocr_start = time.time()
             ocr_result = self.ocr_service.apply_ocr_to_pdf(pdf_stream, file_key)
             processing_duration_seconds.labels(stage='ocr').observe(time.time() - ocr_start)
             
             if ocr_result[0]:
                 pdf_stream = ocr_result[0]
-                if ocr_result[1]:
-                    self.logger.info(f"OCR applied to pages: {ocr_result[1]}")
+                ocr_processing_total.labels(status='success').inc()
                 self.logger.info("OCR processing completed")
             else:
-                self.logger.info("No OCR needed, continuing")
-            
-            # Step 4: Chunk PDF
-            self.logger.info("Step 4: Chunking PDF")
+                ocr_processing_total.labels(status='skipped').inc()
+
+            # Chunking
             chunk_start = time.time()
             chunks = self.chunking_service.chunk_pdf(pdf_stream, file_key)
             processing_duration_seconds.labels(stage='chunking').observe(time.time() - chunk_start)
             chunks_created_total.inc(len(chunks))
             
             if not chunks:
-                self.logger.error("Failed to chunk PDF")
                 processing_errors_total.labels(stage='chunking', error_type='chunking_failed').inc()
                 files_processed_total.labels(status='failed').inc()
                 return False
-            
-            # Step 5: Upload chunks to S3
-            self.logger.info("Step 5: Uploading chunks to S3")
+
+            # Upload chunks to S3
             success_count = 0
-            
             for writer, metadata in chunks:
                 output = io.BytesIO()
                 writer.write(output)
@@ -161,18 +133,16 @@ class Orchestrator:
                 chunk_key = f"{os.path.splitext(file_key)[0]}_page_{page_num}.pdf"
                 
                 upload_start = time.time()
-                if self.s3_service.put_object(CHUNKED_BUCKET, chunk_key, output.getvalue()):
+                if self.s3_service.put_object(self.CHUNKED_BUCKET, chunk_key, output.getvalue()):
                     success_count += 1
-                    s3_uploads_total.labels(bucket=CHUNKED_BUCKET, status='success').inc()
-                    s3_upload_duration.observe(time.time() - upload_start)
+                    s3_uploads_total.labels(bucket=self.CHUNKED_BUCKET, status='success').inc()
+                    processing_duration_seconds.labels(stage='s3_upload').observe(time.time() - upload_start)
                     self.logger.info(f"Uploaded chunk: {chunk_key}")
                 else:
-                    s3_uploads_total.labels(bucket=CHUNKED_BUCKET, status='failed').inc()
-                    s3_write_errors_total.inc()
-            
-            # Step 6: Sync to Knowledge Base immediately after upload
-            folder_name = file_key.split('/')[0] if '/' in file_key else 'default'
-            
+                    s3_uploads_total.labels(bucket=self.CHUNKED_BUCKET, status='failed').inc()
+                    processing_errors_total.labels(stage='s3_upload', error_type='upload_failed').inc()
+
+            # KB sync
             try:
                 from services.kb_sync_service import KBIngestionService
                 kb_service = KBIngestionService(
@@ -181,9 +151,6 @@ class Orchestrator:
                 )
                 
                 if folder_name in kb_service.get_kb_mapping():
-                    kb_info = kb_service.get_kb_mapping()[folder_name]
-                    self.logger.info(f"KB_SYNC: Starting sync for folder '{folder_name}' -> KB ID: {kb_info['id']}")
-                    
                     kb_start = time.time()
                     kb_result = kb_service.sync_to_knowledge_base_simple(folder_name)
                     kb_duration = time.time() - kb_start
@@ -191,81 +158,27 @@ class Orchestrator:
                     if kb_result.get('status') == 'COMPLETE':
                         kb_sync_operations_total.labels(status='success').inc()
                         processing_duration_seconds.labels(stage='kb_sync').observe(kb_duration)
-                        self.logger.info(f"KB_SYNC: Successfully synced '{folder_name}' in {kb_duration:.1f}s")
+                        self.logger.info(f"KB sync completed in {kb_duration:.1f}s")
                     else:
-                        status = kb_result.get('status')
-                        failed_count = len(kb_result.get('failed_files', []))
                         kb_sync_operations_total.labels(status='failed').inc()
-                        self.logger.warning(f"KB_SYNC: Sync completed with status '{status}' ({failed_count} failed files)")
-                else:
-                    self.logger.info(f"KB_SYNC: No KB mapping found for folder '{folder_name}', skipping sync")
-                    
+                        self.logger.warning(f"KB sync failed with status: {kb_result.get('status')}")
+                        
             except Exception as e:
-                kb_sync_total.labels(folder=folder_name, status='failed').inc()
-                kb_sync_failures_total.inc()
-                self.logger.error(f"KB_SYNC: Error during sync for folder '{folder_name}': {str(e)}")
-            
+                kb_sync_operations_total.labels(status='failed').inc()
+                processing_errors_total.labels(stage='kb_sync', error_type='sync_failed').inc()
+                self.logger.error(f"KB sync error: {str(e)}")
+
+            # Final metrics
             processing_time_total = time.time() - start_time
             processing_duration_seconds.labels(stage='total').observe(processing_time_total)
             files_processed_total.labels(status='success').inc()
             
-            if success_count > 0:
-                return True
-            else:
-                files_processed_total.labels(status='failed').inc()
-                return False
-                
+            return success_count > 0
+            
         except Exception as e:
             processing_errors_total.labels(stage='processing', error_type='general').inc()
             files_processed_total.labels(status='failed').inc()
-            logging.error(f"Error processing {file_key}: {e}")
+            self.logger.error(f"Error processing {file_key}: {e}")
             return False
         finally:
             active_processing_jobs.dec()
-    
-    def get_folder_name_from_path(self, file_path: str) -> str:
-        """Extract folder name from file path for KB sync mapping"""
-        if '/' in file_path:
-            return file_path.split('/')[0]
-        else:
-            return 'default'
-    
-    def process_folder(self, folder: str) -> Dict[str, Any]:
-        """
-        Process all PDFs in a folder with smart KB sync.
-        
-        Args:
-            folder: Folder prefix to process
-            
-        Returns:
-            Dictionary with processing results
-        """
-        try:
-            files = self.s3_service.list_files_in_folder(SOURCE_BUCKET, folder)
-            self.logger.info(f"[PROCESSING] Found {len(files)} files to process in folder: {folder}")
-            
-            results = {'total': len(files), 'success': 0, 'failed': 0}
-            
-            for i, file_key in enumerate(files, 1):
-                self.logger.info(f"[PROCESSING] Processing file {i}/{len(files)}: {file_key}")
-                
-                if self.process_single_file(file_key):
-                    results['success'] += 1
-                    self.logger.info(f"[PROCESSING] Successfully processed: {file_key}")
-                else:
-                    results['failed'] += 1
-                    self.logger.warning(f"[PROCESSING] Failed to process: {file_key}")
-            
-            # KB sync is now immediate - no final sync needed
-            self.logger.info("[PROCESSING] ✅ All processing completed - KB sync handled immediately")
-            
-            # Log final summary
-            self.logger.info(f"[PROCESSING] Processing completed for {folder}: {results}")
-            return results
-            
-            self.logger.info(f"[PROCESSING] Processing completed for {folder}: {results}")
-            return results
-            
-        except Exception as e:
-            self.logger.error(f"[PROCESSING] Error processing folder {folder}: {str(e)}")
-            return {'total': 0, 'success': 0, 'failed': 0}
