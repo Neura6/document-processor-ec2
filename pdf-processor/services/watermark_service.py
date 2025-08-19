@@ -1,13 +1,11 @@
 """
-Watermark Removal Service - Fixed Version
-Handles watermark removal from PDFs using PyMuPDF.
-Fixed to return bytes consistently instead of tuple.
+Watermark Removal Service - Ultra Simplified
+Handles watermark removal from PDFs using PyMuPDF with zero tuple usage.
 """
 
 import fitz
 import io
 import logging
-from typing import List
 
 logger = logging.getLogger(__name__)
 
@@ -23,13 +21,9 @@ class WatermarkService:
     def __init__(self):
         self.logger = logging.getLogger(__name__)
     
-    def is_page_empty(self, page: fitz.Page) -> bool:
-        """Check if a page is completely empty."""
-        return not page.get_text("text").strip() and not page.get_images() and not page.get_links()
-    
     def remove_watermarks(self, pdf_content: bytes, file_key: str = None) -> bytes:
         """
-        Remove watermarks from PDF content
+        Remove watermarks from PDF content using only text redaction.
         
         Args:
             pdf_content: PDF file content as bytes
@@ -47,41 +41,23 @@ class WatermarkService:
             doc = fitz.open("pdf", pdf_stream)
             modified = False
             
-            # Process each page
+            # Process each page - only use text redaction (no tuple issues)
             for i, page in enumerate(doc):
-                page_modified = False
+                text_modified = False
                 
-                # Remove specified terms (case-sensitive)
+                # Remove specified terms via redaction
                 for term in WATERMARK_TERMS_TO_REMOVE:
                     text_instances = page.search_for(term)
                     if text_instances:
-                        page_modified = True
+                        text_modified = True
                         modified = True
                         self.logger.debug(f"Found term '{term}' on page {i+1} of {file_key}")
                         for rect in text_instances:
                             page.add_redact_annot(rect, fill=(1, 1, 1))
                 
-                # Apply redactions
-                if page_modified:
+                # Apply redactions for text only
+                if text_modified:
                     page.apply_redactions()
-                
-                # Remove hyperlinks containing terms (case-insensitive)
-                try:
-                    links = page.get_links()
-                    for link in links:
-                        if "uri" in link and any(term.lower() in link["uri"].lower() 
-                                               for term in WATERMARK_TERMS_TO_REMOVE):
-                            modified = True
-                            # Use the link's xref directly
-                            xref = link.get("xref")
-                            if xref:
-                                try:
-                                    page.delete_annot(xref)
-                                except Exception as e:
-                                    self.logger.warning(f"Could not delete link annotation: {e}")
-                
-                except Exception as e:
-                    self.logger.warning(f"Error processing links on page {i+1}: {e}")
             
             # Save final document
             if modified:
