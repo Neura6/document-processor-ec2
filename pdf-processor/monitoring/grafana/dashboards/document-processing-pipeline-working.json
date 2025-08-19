@@ -1,0 +1,143 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "Document Processing Pipeline",
+    "tags": ["document-processing", "pipeline", "s3", "sqs", "ec2"],
+    "timezone": "browser",
+    "refresh": "30s",
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "Files Uploaded to S3",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "document_s3_uploads_total{bucket=\"rules-repository\",status=\"success\"}",
+            "legendFormat": "Successful Uploads"
+          }
+        ],
+        "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0}
+      },
+      {
+        "id": 2,
+        "title": "S3 Upload Failures",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "document_s3_uploads_total{bucket=\"rules-repository\",status=\"failed\"}",
+            "legendFormat": "Failed Uploads"
+          }
+        ],
+        "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0}
+      },
+      {
+        "id": 3,
+        "title": "Format Conversions",
+        "type": "table",
+        "targets": [
+          {
+            "expr": "document_conversions_total",
+            "legendFormat": "{{from_format}} → {{to_format}} ({{status}})"
+          }
+        ],
+        "gridPos": {"h": 4, "w": 12, "x": 12, "y": 0}
+      },
+      {
+        "id": 4,
+        "title": "OCR Processing",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "document_ocr_processing_total{status=\"success\"}",
+            "legendFormat": "OCR Success"
+          }
+        ],
+        "gridPos": {"h": 4, "w": 6, "x": 0, "y": 4}
+      },
+      {
+        "id": 5,
+        "title": "Chunks Created",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "document_chunks_created_total",
+            "legendFormat": "Total Chunks"
+          }
+        ],
+        "gridPos": {"h": 4, "w": 6, "x": 6, "y": 4}
+      },
+      {
+        "id": 6,
+        "title": "KB Sync Operations",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "document_kb_sync_operations_total{status=\"success\"}",
+            "legendFormat": "KB Sync Success"
+          }
+        ],
+        "gridPos": {"h": 4, "w": 6, "x": 12, "y": 4}
+      },
+      {
+        "id": 7,
+        "title": "Files Processed",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "document_files_processed_total{status=\"success\"}",
+            "legendFormat": "Successful Files"
+          }
+        ],
+        "gridPos": {"h": 4, "w": 6, "x": 18, "y": 4}
+      },
+      {
+        "id": 8,
+        "title": "Processing Duration by Stage",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "document_processing_duration_seconds{stage=\"conversion\"}",
+            "legendFormat": "Conversion Time"
+          },
+          {
+            "expr": "document_processing_duration_seconds{stage=\"ocr\"}",
+            "legendFormat": "OCR Time"
+          },
+          {
+            "expr": "document_processing_duration_seconds{stage=\"chunking\"}",
+            "legendFormat": "Chunking Time"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8}
+      },
+      {
+        "id": 9,
+        "title": "Active Processing Jobs",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "document_active_processing_jobs",
+            "legendFormat": "Active Jobs"
+          }
+        ],
+        "gridPos": {"h": 4, "w": 12, "x": 0, "y": 16}
+      },
+      {
+        "id": 10,
+        "title": "Processing Errors",
+        "type": "table",
+        "targets": [
+          {
+            "expr": "document_processing_errors_total",
+            "legendFormat": "{{stage}} - {{error_type}}"
+          }
+        ],
+        "gridPos": {"h": 4, "w": 12, "x": 12, "y": 16}
+      }
+    ]
+  }
+}

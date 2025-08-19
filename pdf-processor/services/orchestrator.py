@@ -18,38 +18,18 @@ from services.chunking_service import ChunkingService
 from services.s3_service import S3Service
 from prometheus_client import Counter, Histogram, Gauge
 from config import AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, SOURCE_BUCKET, CHUNKED_BUCKET
-from monitoring.metrics import (
-    files_processed_total,
-    processing_duration,
-    processing_errors,
-    s3_uploads_total,
-    s3_upload_duration,
-    kb_sync_total,
-    kb_sync_duration,
-    queue_depth,
-    active_processing_jobs,
-    start_metrics_server,
-    record_processing_time,
-    record_file_processed,
-    record_kb_sync
-)
+from prometheus_client import Counter, Histogram, Gauge, start_http_server
 
-# Prometheus metrics
-files_processed_total = Counter('pdf_files_processed_total', 'Total files processed', ['status', 'format', 'stage'])
-processing_duration = Histogram('pdf_processing_duration_seconds', 'Time spent processing files', ['stage'])
-processing_errors = Counter('pdf_processing_errors_total', 'Total processing errors', ['stage', 'error_type'])
-s3_uploads_total = Counter('pdf_s3_uploads_total', 'Total S3 uploads', ['bucket', 'status'])
-s3_upload_duration = Histogram('pdf_s3_upload_duration_seconds', 'Time spent uploading to S3')
-kb_sync_total = Counter('pdf_kb_sync_total', 'Total KB sync operations', ['status'])
-kb_sync_duration = Histogram('pdf_kb_sync_duration_seconds', 'Time spent syncing to KB')
-conversions_total = Counter('pdf_conversions_total', 'Total file conversions', ['from_format', 'to_format', 'status'])
-oct_failures_total = Counter('pdf_ocr_failures_total', 'Total OCR failures')
-chunks_created_total = Counter('pdf_chunks_created_total', 'Total chunks created')
-chunking_errors_total = Counter('pdf_chunking_errors_total', 'Total chunking errors')
-s3_write_errors_total = Counter('pdf_s3_write_errors_total', 'Total S3 write errors')
-kb_sync_failures_total = Counter('pdf_kb_sync_failures_total', 'Total KB sync failures')
-file_size_bytes = Gauge('pdf_file_size_bytes', 'Size of processed files')
-active_processing_jobs = Gauge('pdf_active_processing_jobs', 'Currently active processing jobs')
+# Document Pipeline Metrics
+s3_uploads_total = Counter('document_s3_uploads_total', 'Total files uploaded to S3', ['bucket', 'status'])
+document_conversions_total = Counter('document_conversions_total', 'Total format conversions', ['from_format', 'to_format', 'status'])
+ocr_processing_total = Counter('document_ocr_processing_total', 'Total OCR processing jobs', ['status'])
+chunks_created_total = Counter('document_chunks_created_total', 'Total chunks created')
+kb_sync_operations_total = Counter('document_kb_sync_operations_total', 'Total KB sync operations', ['status'])
+processing_duration_seconds = Histogram('document_processing_duration_seconds', 'Total processing time per file', ['stage'])
+files_processed_total = Counter('document_files_processed_total', 'Total files processed', ['status'])
+active_processing_jobs = Gauge('document_active_processing_jobs', 'Currently active processing jobs')
+processing_errors_total = Counter('document_processing_errors_total', 'Total processing errors', ['stage', 'error_type'])
 
 class Orchestrator:
     """Main orchestrator for PDF processing workflow."""
@@ -107,20 +87,19 @@ class Orchestrator:
                 
                 convert_start = time.time()
                 pdf_content, converted_filename = self.conversion_service.convert_to_pdf(file_bytes, file_key)
-                record_processing_time('conversion', time.time() - convert_start)
-                conversions_total.labels(from_format=extension, to_format='pdf', status='success').inc()
+                processing_duration_seconds.labels(stage='conversion').observe(time.time() - convert_start)
+                document_conversions_total.labels(from_format=extension, to_format='pdf', status='success').inc()
                 
                 if pdf_content is None:
                     self.logger.error(f"Failed to convert {file_key} to PDF")
-                    processing_errors.labels(error_type='conversion_failed', step='conversion').inc()
-                    conversions_total.labels(from_format=extension, to_format='pdf', status='failed').inc()
-                    record_file_processed('failed', folder_name)
+                    processing_errors_total.labels(stage='conversion', error_type='conversion_failed').inc()
+                    document_conversions_total.labels(from_format=extension, to_format='pdf', status='failed').inc()
+                    files_processed_total.labels(status='failed').inc()
                     return False
                 
                 file_key = converted_filename
                 pdf_stream = io.BytesIO(pdf_content)
                 self.logger.info(f"Successfully converted to {converted_filename}")
-            else:
                 pdf_bytes = self.s3_service.get_object(SOURCE_BUCKET, file_key)
                 pdf_stream = io.BytesIO(pdf_bytes)
             
