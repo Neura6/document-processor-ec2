@@ -114,14 +114,14 @@ class WatermarkService:
                 final_stream.seek(0)
                 doc.close()
                 
-                return final_stream, removed_pages
+                return final_stream.read()
             
             else:
                 doc.close()
-                return None, []
+                return None
                 
         except Exception as e:
             self.logger.error(f"Error during watermark processing: {e}")
             if 'doc' in locals():
                 doc.close()
-            return None, []
+            return None
