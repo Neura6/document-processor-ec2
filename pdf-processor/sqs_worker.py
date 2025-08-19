@@ -93,6 +93,13 @@ class SQSWorker:
                     else:
                         logger.error(f"Error processing {object_key}: {error_msg}")
                 
+                # Always delete the message to prevent infinite retries
+                self.sqs.delete_message(
+                    QueueUrl=self.queue_url,
+                    ReceiptHandle=message['ReceiptHandle']
+                )
+                logger.debug(f"Deleted SQS message for: {object_key}")
+                
             except KeyError as e:
                 logger.error(f"Error processing message - missing key: {e}")
                 logger.error(f"Message content: {message}")

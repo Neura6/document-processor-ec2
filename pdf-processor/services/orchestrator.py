@@ -68,16 +68,14 @@ class Orchestrator:
             
             # Check if file exists first
             if not self.s3_service.object_exists(self.SOURCE_BUCKET, file_key):
-                self.logger.warning(f"File not found: {file_key} - skipping")
-                processing_errors_total.labels(stage='validation', error_type='file_not_found').inc()
+                self.logger.info(f"File not found, skipping: {file_key}")
                 return False
             
             # Track S3 download
             download_start = time.time()
             file_bytes = self.s3_service.get_object(self.SOURCE_BUCKET, file_key)
             if file_bytes is None:
-                self.logger.warning(f"Could not retrieve file: {file_key} - skipping")
-                processing_errors_total.labels(stage='s3_download', error_type='download_failed').inc()
+                self.logger.info(f"Could not retrieve file, skipping: {file_key}")
                 return False
                 
             processing_duration_seconds.labels(stage='s3_download').observe(time.time() - download_start)
@@ -187,15 +185,14 @@ class Orchestrator:
             return success_count > 0
             
         except Exception as e:
-            # Handle S3 NoSuchKey specifically
+            # Handle S3 NoSuchKey specifically - don't count as error
             if 'NoSuchKey' in str(e) or 'NoSuchBucket' in str(e):
-                self.logger.warning(f"File not found, skipping: {file_key}")
-                processing_errors_total.labels(stage='validation', error_type='file_not_found').inc()
+                self.logger.info(f"File not found, skipping: {file_key}")
+                return False
             else:
                 processing_errors_total.labels(stage='processing', error_type='general').inc()
                 self.logger.error(f"Error processing {file_key}: {e}")
-            
-            files_processed_total.labels(status='failed').inc()
-            return False
+                files_processed_total.labels(status='failed').inc()
+                return False
         finally:
             active_processing_jobs.dec()
