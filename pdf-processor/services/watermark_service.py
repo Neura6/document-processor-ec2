@@ -118,7 +118,7 @@ class WatermarkService:
             
             else:
                 doc.close()
-                return None
+                return pdf_content
                 
         except Exception as e:
             self.logger.error(f"Error during watermark processing: {e}")
