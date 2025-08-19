@@ -6,14 +6,20 @@ Monitors SQS queue for S3 upload events and processes PDFs
 
 import os
 import json
-import logging
 import time
+import logging
+from pathlib import Path
 from typing import List, Dict, Any
 import boto3
 from botocore.exceptions import ClientError
 from urllib.parse import unquote_plus
 from services.orchestrator import Orchestrator
-from monitoring.metrics import start_metrics_server, queue_depth, messages_processed
+from monitoring.metrics import files_processed_total, messages_processed, processing_errors
+from monitoring.flow_metrics import (
+    sqs_files_queued, sqs_files_added, sqs_files_processed,
+    ec2_files_processing, ec2_files_completed,
+    kb_files_synced
+)
 
 # Configure logging
 logging.basicConfig(
@@ -73,6 +79,11 @@ class SQSWorker:
                 
                 logger.info(f"Processing file: s3://{bucket_name}/{object_key}")
                 
+                # Update flow metrics
+                sqs_files_processed.inc()
+                ec2_files_processing.inc()
+                ec2_files_queued.inc()
+                
                 try:
                     # Process the file through orchestrator
                     success = self.orchestrator.process_single_file(object_key)
@@ -80,16 +91,25 @@ class SQSWorker:
                     if success:
                         processed_receipts.append(message['ReceiptHandle'])
                         messages_processed.inc()
+                        ec2_files_completed.inc()
+                        ec2_files_processing.dec()
+                        ec2_files_queued.dec()
+                        kb_files_synced.inc()  # Assuming sync happens after processing
                         logger.info(f"Successfully processed: {object_key}")
                     else:
                         logger.error(f"Failed to process: {object_key}")
+                        ec2_files_processing.dec()
+                        ec2_files_failed.inc()
                         
                 except Exception as e:
                     error_msg = str(e)
+                    ec2_files_processing.dec()
+                    ec2_files_queued.dec()
                     if "NoSuchKey" in error_msg or "specified key does not exist" in error_msg:
                         logger.warning(f"File not found, deleting message: {object_key}")
                         processed_receipts.append(message['ReceiptHandle'])
                         messages_processed.inc()
+                        ec2_files_failed.inc()
                     else:
                         logger.error(f"Error processing {object_key}: {error_msg}")
                 
@@ -120,12 +140,24 @@ class SQSWorker:
     def poll_sqs(self, max_messages: int = 10) -> List[Dict]:
         """Poll SQS for messages"""
         try:
+            # Get current queue depth
+            queue_attrs = self.sqs.get_queue_attributes(
+                QueueUrl=self.queue_url,
+                AttributeNames=['ApproximateNumberOfMessages']
+            )
+            queue_depth = int(queue_attrs['Attributes']['ApproximateNumberOfMessages'])
+            sqs_files_queued.set(queue_depth)
+            
+            # Receive messages from SQS
             response = self.sqs.receive_message(
                 QueueUrl=self.queue_url,
                 MaxNumberOfMessages=max_messages,
-                WaitTimeSeconds=10
+                WaitTimeSeconds=20
             )
-            return response.get('Messages', [])
+            
+            messages = response.get('Messages', [])
+            if not messages:
+                return []
         except Exception as e:
             logger.error(f"Error polling SQS: {str(e)}")
             return []
