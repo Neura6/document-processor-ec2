@@ -113,11 +113,21 @@ class SQSWorker:
             }
         except Exception as e:
             self.logger.error(f"Error processing {object_key}: {e}")
-            return {
-                'success': False,
-                'file_key': object_key,
-                'receipt_handle': message['ReceiptHandle']
-            }
+            # Check if it's a NoSuchKey error - delete message if file doesn't exist
+            if "NoSuchKey" in str(e) or "specified key does not exist" in str(e).lower():
+                self.logger.info(f"File {object_key} doesn't exist, will delete SQS message")
+                return {
+                    'success': True,  # Mark as processed to trigger deletion
+                    'file_key': object_key,
+                    'receipt_handle': message['ReceiptHandle'],
+                    'delete_message': True
+                }
+            else:
+                return {
+                    'success': False,
+                    'file_key': object_key,
+                    'receipt_handle': message['ReceiptHandle']
+                }
     
     def delete_messages(self, receipt_handles: List[str]):
         """Delete processed messages from queue"""
