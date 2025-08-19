@@ -85,37 +85,13 @@ class WatermarkService:
                 except Exception as e:
                     self.logger.warning(f"Error processing links on page {i+1}: {e}")
             
-            # Identify empty pages to remove
+            # Save final document
             if modified:
-                temp_stream = io.BytesIO()
-                doc.save(temp_stream, garbage=4, deflate=True)
-                temp_stream.seek(0)
-                temp_doc = fitz.open("pdf", temp_stream.read())
-                
-                # Find pages to remove
-                indices_to_delete = [
-                    i for i, page in enumerate(temp_doc)
-                    if self.is_page_empty(page) and i not in pages_with_terms_indices
-                ]
-                
-                temp_doc.close()
-                
-                # Remove identified pages
-                removed_pages = []
-                indices_to_delete.sort(reverse=True)
-                for index in indices_to_delete:
-                    if 0 <= index < len(doc):
-                        doc.delete_page(index)
-                        removed_pages.append(index + 1)
-                
-                # Save final document
                 final_stream = io.BytesIO()
                 doc.save(final_stream, garbage=4, deflate=True)
                 final_stream.seek(0)
                 doc.close()
-                
                 return final_stream.read()
-            
             else:
                 doc.close()
                 return pdf_content
