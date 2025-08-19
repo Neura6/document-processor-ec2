@@ -161,6 +161,7 @@ class Orchestrator:
             # Step 5: Upload chunks to S3
             self.logger.info("Step 5: Uploading chunks to S3")
             success_count = 0
+            record_file_uploaded_to_s3()
             
             for writer, metadata in chunks:
                 output = io.BytesIO()
