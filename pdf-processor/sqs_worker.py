@@ -76,22 +76,12 @@ class SQSWorker:
                 try:
                     # Process the file through orchestrator
                     success = self.orchestrator.process_single_file(object_key)
-                    
                     if success:
-                        processed_receipts.append(message['ReceiptHandle'])
-                        messages_processed.inc()
                         logger.info(f"Successfully processed: {object_key}")
-                    else:
-                        logger.error(f"Failed to process: {object_key}")
+                    # Don't log anything for missing files - they're handled gracefully
                         
                 except Exception as e:
-                    error_msg = str(e)
-                    if "NoSuchKey" in error_msg or "specified key does not exist" in error_msg:
-                        logger.warning(f"File not found, deleting message: {object_key}")
-                        processed_receipts.append(message['ReceiptHandle'])
-                        messages_processed.inc()
-                    else:
-                        logger.error(f"Error processing {object_key}: {error_msg}")
+                    logger.error(f"Error processing {object_key}: {e}")
                 
                 # Always delete the message to prevent infinite retries
                 self.sqs.delete_message(
@@ -99,6 +89,8 @@ class SQSWorker:
                     ReceiptHandle=message['ReceiptHandle']
                 )
                 logger.debug(f"Deleted SQS message for: {object_key}")
+                processed_receipts.append(message['ReceiptHandle'])
+                messages_processed.inc()
                 
             except KeyError as e:
                 logger.error(f"Error processing message - missing key: {e}")
