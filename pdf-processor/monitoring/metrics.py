@@ -6,12 +6,6 @@ files_processed_total = Counter('pdf_files_processed_total', 'Total files proces
 processing_duration = Histogram('pdf_processing_duration_seconds', 'Processing time per file', ['step'])
 processing_errors = Counter('pdf_processing_errors_total', 'Total processing errors', ['error_type', 'step'])
 
-# File count metrics
-files_uploaded_to_s3_total = Counter('files_uploaded_to_s3_total', 'Total files uploaded to S3')
-files_converted_to_pdf_total = Counter('files_converted_to_pdf_total', 'Files converted to PDF', ['job'])
-files_chunked_total = Counter('files_chunked_total', 'Original files that have been chunked', ['job'])
-files_not_converted_total = Counter('files_not_converted_total', 'Files not converted from other formats', ['job'])
-
 # S3 metrics
 s3_uploads_total = Counter('s3_uploads_total', 'Total S3 uploads', ['bucket', 'status'])
 s3_upload_duration = Histogram('s3_upload_duration_seconds', 'S3 upload duration')
@@ -41,22 +35,6 @@ def record_processing_time(step_name, duration):
 def record_file_processed(status, folder):
     """Record a file processing completion"""
     files_processed_total.labels(status=status, folder=folder).inc()
-
-def record_file_uploaded_to_s3():
-    """Record file uploaded to S3"""
-    files_uploaded_to_s3_total.inc()
-
-def record_file_converted_to_pdf(job="today"):
-    """Record file converted to PDF"""
-    files_converted_to_pdf_total.labels(job=job).inc()
-
-def record_file_chunked(job="today"):
-    """Record original file chunked"""
-    files_chunked_total.labels(job=job).inc()
-
-def record_file_not_converted(job="today"):
-    """Record file not converted from other formats"""
-    files_not_converted_total.labels(job=job).inc()
 
 def record_kb_sync(folder, status, duration=None):
     """Record KB sync attempt"""
