@@ -8,7 +8,7 @@ import pytesseract
 from PIL import Image
 import io
 import logging
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple
 from concurrent.futures import ProcessPoolExecutor
 import os
 
