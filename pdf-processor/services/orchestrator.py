@@ -12,7 +12,7 @@ import logging
 from typing import List, Dict, Any
 import PyPDF2
 from services.filename_service import FilenameService
-from services.watermark_service_fixed import WatermarkService
+from services.watermark_service import WatermarkService
 from services.ocr_service import OCRService
 from services.chunking_service import ChunkingService
 from services.s3_service import S3Service
