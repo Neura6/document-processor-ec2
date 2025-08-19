@@ -160,6 +160,7 @@ class SQSWorker:
                 logger.info("Worker stopped by user")
                 break
                 time.sleep(5)
+    
 
 if __name__ == "__main__":
     worker = SQSWorker()
