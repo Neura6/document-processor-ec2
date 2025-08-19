@@ -20,18 +20,20 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
-logger = logging.getLogger(__name__)
 
 class SQSWorker:
     def __init__(self):
-        self.sqs = boto3.client('sqs', region_name=os.getenv('AWS_REGION', 'us-east-1'))
-        self.queue_url = os.getenv('SQS_QUEUE_URL')
+        self.logger = logging.getLogger(__name__)
+        self.sqs = boto3.client('sqs', region_name='us-east-1')
         self.orchestrator = Orchestrator()
+        self.queue_url = os.getenv('SQS_QUEUE_URL')
+        self.batch_size = 10  # Process 10 files in parallel
+        self.max_workers = 10  # Thread pool for parallel processing
         
         if not self.queue_url:
             raise ValueError("SQS_QUEUE_URL environment variable not set")
         
-        logger.info("SQS Worker initialized")
+        self.logger.info("SQS Worker initialized")
     
     def get_queue_depth(self) -> int:
         """Get current queue depth for metrics"""
@@ -46,54 +48,71 @@ class SQSWorker:
             return 0
     
     def process_messages(self, messages: List[Dict]) -> List[str]:
-        """Process batch of SQS messages"""
+        """Process batch of SQS messages in parallel"""
         processed_receipts = []
         
-        for message in messages:
-            try:
-                # Parse the message body
-                body = json.loads(message['Body'])
+        # Process messages in batches of 10
+        message_batches = [messages[i:i+self.batch_size] for i in range(0, len(messages), self.batch_size)]
+        
+        for batch in message_batches:
+            with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+                futures = []
                 
-                # Extract S3 event details
-                records = body.get('Records', [])
-                if not records:
-                    logger.error(f"No Records found in message: {body}")
-                    continue
+                for message in batch:
+                    try:
+                        body = json.loads(message['Body'])
+                        
+                        # Extract S3 event details
+                        records = body.get('Records', [])
+                        if not records:
+                            logger.error(f"No Records found in message: {body}")
+                            continue
+                        
+                        s3_record = records[0].get('s3', {})
+                        bucket_name = s3_record.get('bucket', {}).get('name')
+                        object_key = s3_record.get('object', {}).get('key')
+                        
+                        if not bucket_name or not object_key:
+                            logger.error(f"Invalid S3 event format: {body}")
+                            continue
+                        
+                        # URL decode the object key
+                        object_key = unquote_plus(object_key)
+                        
+                        # Submit to thread pool for parallel processing
+                        future = executor.submit(self.process_single_file_parallel, bucket_name, object_key, message)
+                        futures.append(future)
+                        
+                    except Exception as e:
+                        logger.error(f"Error preparing batch: {e}")
                 
-                s3_record = records[0].get('s3', {})
-                bucket_name = s3_record.get('bucket', {}).get('name')
-                object_key = s3_record.get('object', {}).get('key')
-                
-                if not bucket_name or not object_key:
-                    logger.error(f"Invalid S3 event format: {body}")
-                    continue
-                
-                # URL decode the object key
-                object_key = unquote_plus(object_key)
-                
-                logger.info(f"Processing file: s3://{bucket_name}/{object_key}")
-                
-                # Process the file through orchestrator
-                success = self.orchestrator.process_single_file(object_key)
-                
-                if success:
-                    processed_receipts.append(message['ReceiptHandle'])
-                    messages_processed.inc()
-                    logger.info(f"Successfully processed: {object_key}")
-                else:
-                    logger.error(f"Failed to process: {object_key}")
-                
-            except KeyError as e:
-                logger.error(f"Error processing message - missing key: {e}")
-                logger.error(f"Message content: {message}")
-            except json.JSONDecodeError as e:
-                logger.error(f"Error parsing JSON: {e}")
-                logger.error(f"Raw message body: {message.get('Body', 'No body')}")
-            except Exception as e:
-                logger.error(f"Error processing message: {e}")
-                logger.error(f"Message content: {message}")
+                # Wait for all parallel processes to complete
+                for future in as_completed(futures):
+                    try:
+                        result = future.result()
+                        if result['success']:
+                            processed_receipts.append(result['receipt_handle'])
+                            messages_processed.inc()
+                        else:
+                            logger.error(f"Failed to process: {result['file_key']}")
+                    except Exception as e:
+                        logger.error(f"Error in parallel processing: {e}")
         
         return processed_receipts
+    
+    def process_single_file_parallel(self, bucket_name: str, object_key: str, message: Dict) -> Dict:
+        """Process single file in parallel"""
+        try:
+            logger.info(f"Parallel processing: s3://{bucket_name}/{object_key}")
+            success = self.orchestrator.process_single_file_parallel(object_key)
+            return {
+                'success': success,
+                'file_key': object_key,
+                'receipt_handle': message['ReceiptHandle']
+            }
+        except Exception as e:
+            logger.error(f"Error in parallel processing: {e}")
+            return {'success': False, 'file_key': object_key, 'receipt_handle': message['ReceiptHandle']}
     
     def delete_messages(self, receipt_handles: List[str]):
         """Delete processed messages from queue"""

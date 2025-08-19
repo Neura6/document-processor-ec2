@@ -63,8 +63,12 @@ class Orchestrator:
         self.logger.info("Orchestrator initialized successfully")
     
     def process_single_file(self, file_key: str) -> bool:
+        """Legacy method - use process_single_file_parallel instead"""
+        return self.process_single_file_parallel(file_key)
+    
+    def process_single_file_parallel(self, file_key: str) -> bool:
         """
-        Process a single PDF file through the complete pipeline.
+        Process a single PDF file through the complete pipeline in parallel.
         
         Args:
             file_key: S3 object key to process
@@ -171,57 +175,59 @@ class Orchestrator:
                 else:
                     s3_uploads_total.labels(bucket=CHUNKED_BUCKET, status='failed').inc()
             
-            # Step 6: Sync to Knowledge Base immediately after upload
+            # Step 6: Sync to Knowledge Base in parallel
             folder_name = file_key.split('/')[0] if '/' in file_key else 'default'
             
             try:
+                # Use parallel KB sync service
+                from concurrent.futures import ThreadPoolExecutor
                 from services.kb_sync_service import KBIngestionService
+                
                 kb_service = KBIngestionService(
-                    aws_access_key_id=AWS_ACCESS_KEY_ID, 
-                    aws_secret_access_key=AWS_SECRET_ACCESS_KEY
+                    aws_access_key_id=AWS_ACCESS_KEY_ID,
+                    aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
+                    region_name='us-east-1'
                 )
                 
-                if folder_name in kb_service.get_kb_mapping():
-                    kb_info = kb_service.get_kb_mapping()[folder_name]
-                    self.logger.info(f"KB_SYNC: Starting sync for folder '{folder_name}' -> KB ID: {kb_info['id']}")
+                # Parallel KB sync using thread pool
+                with ThreadPoolExecutor(max_workers=3) as executor:
+                    future = executor.submit(
+                        kb_service.sync_to_knowledge_base,
+                        folder_name=folder_name,
+                        s3_bucket=CHUNKED_BUCKET,
+                        s3_prefix=f"{folder_name}/"
+                    )
                     
-                    kb_start = time.time()
-                    kb_result = kb_service.sync_to_knowledge_base_simple(folder_name)
-                    kb_duration = time.time() - kb_start
+                    # Wait for KB sync completion
+                    kb_result = future.result(timeout=300)  # 5 min timeout
                     
-                    if kb_result.get('status') == 'COMPLETE':
-                        kb_sync_total.labels(folder=folder_name, status='COMPLETE').inc()
-                        kb_sync_duration.labels(folder=folder_name).observe(kb_duration)
-                        self.logger.info(f"KB_SYNC: Successfully synced '{folder_name}' in {kb_duration:.1f}s")
+                    if kb_result:
+                        kb_sync_total.labels(status='success').inc()
+                        self.logger.info(f"KB sync completed for {folder_name}")
                     else:
-                        status = kb_result.get('status')
-                        failed_count = len(kb_result.get('failed_files', []))
-                        kb_sync_total.labels(folder=folder_name, status=status).inc()
-                        self.logger.warning(f"KB_SYNC: Sync completed with status '{status}' ({failed_count} failed files)")
-                else:
-                    self.logger.info(f"KB_SYNC: No KB mapping found for folder '{folder_name}', skipping sync")
-                    
+                        kb_sync_total.labels(status='failed').inc()
+                        self.logger.error(f"KB sync failed for {folder_name}")
+                        return False
+            
             except Exception as e:
-                kb_sync_total.labels(folder=folder_name, status='failed').inc()
-                self.logger.error(f"KB_SYNC: Error during sync for folder '{folder_name}': {str(e)}")
-            
-            processing_time_total = time.time() - start_time
-            record_processing_time('total', processing_time_total)
-            
-            if success_count > 0:
-                record_file_processed('success', folder_name)
-                return True
-            else:
-                record_file_processed('failed', folder_name)
+                kb_sync_total.labels(status='failed').inc()
+                self.logger.error(f"KB sync failed: {str(e)}")
                 return False
-                
-        except Exception as e:
-            processing_errors.labels(error_type='general', step='processing').inc()
-            record_file_processed('failed', folder_name)
-            logging.error(f"Error processing {file_key}: {e}")
-            return False
-        finally:
-            active_processing_jobs.dec()
+        
+        # Record overall processing time
+        processing_duration.observe(time.time() - start_time)
+        record_file_processed('success')
+        
+        self.logger.info(f"✅ Successfully processed file: {file_key}")
+        return True
+        
+    except Exception as e:
+        processing_errors.labels(error_type='general', step='processing').inc()
+        record_file_processed('failed', folder_name)
+        self.logger.error(f"Error processing {file_key}: {e}")
+        return False
+    finally:
+        active_processing_jobs.dec()
     
     def get_folder_name_from_path(self, file_path: str) -> str:
         """Extract folder name from file path for KB sync mapping"""
