@@ -1,12 +1,13 @@
 """
-Watermark Removal Service
+Watermark Removal Service - Fixed Version
 Handles watermark removal from PDFs using PyMuPDF.
+Fixed to return bytes consistently instead of tuple.
 """
 
 import fitz
 import io
 import logging
-from typing import Tuple, List
+from typing import List
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +46,6 @@ class WatermarkService:
             pdf_stream = io.BytesIO(pdf_content)
             doc = fitz.open("pdf", pdf_stream)
             modified = False
-            pages_with_terms_indices = set()
             
             # Process each page
             for i, page in enumerate(doc):
@@ -55,7 +55,6 @@ class WatermarkService:
                 for term in WATERMARK_TERMS_TO_REMOVE:
                     text_instances = page.search_for(term)
                     if text_instances:
-                        pages_with_terms_indices.add(i)
                         page_modified = True
                         modified = True
                         self.logger.debug(f"Found term '{term}' on page {i+1} of {file_key}")
@@ -69,18 +68,13 @@ class WatermarkService:
                 # Remove hyperlinks containing terms (case-insensitive)
                 try:
                     links = page.get_links()
-                    annots_to_delete = []
                     for link in links:
                         if "uri" in link and any(term.lower() in link["uri"].lower() 
                                                for term in WATERMARK_TERMS_TO_REMOVE):
                             modified = True
                             if "xref" in link:
-                                annots_to_delete.append(link["xref"])
-                    
-                    # Delete marked annotations
-                    for annot in page.annots():
-                        if annot.xref in annots_to_delete:
-                            page.delete_annot(annot)
+                                # Delete the link annotation
+                                page.delete_annot(link["xref"])
                 
                 except Exception as e:
                     self.logger.warning(f"Error processing links on page {i+1}: {e}")
