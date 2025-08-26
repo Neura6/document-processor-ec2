@@ -23,14 +23,6 @@ messages_processed = Counter('sqs_messages_processed_total', 'Total SQS messages
 active_processing_jobs = Gauge('active_processing_jobs', 'Number of active processing jobs')
 processing_rate = Gauge('processing_rate_per_hour', 'Processing rate per hour')
 
-# Real-time processing state metrics
-conversion_files_active = Gauge('conversion_files_active', 'Files currently in format conversion')
-ocr_files_active = Gauge('ocr_files_active', 'Files currently in OCR processing')
-watermark_files_active = Gauge('watermark_files_active', 'Files currently in watermark removal')
-chunking_files_active = Gauge('chunking_files_active', 'Files currently being chunked')
-kb_sync_files_active = Gauge('kb_sync_files_active', 'Files currently syncing to KB')
-s3_upload_files_active = Gauge('s3_upload_files_active', 'Files currently being uploaded to S3')
-
 def start_metrics_server(port=8000):
     """Start Prometheus metrics server"""
     start_http_server(port)

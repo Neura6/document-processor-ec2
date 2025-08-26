@@ -7,7 +7,6 @@ TMI removal, and non-English character conversion.
 import re
 import unidecode
 import logging
-import os
 from typing import Tuple
 
 logger = logging.getLogger(__name__)
@@ -116,32 +115,3 @@ class FilenameService:
     def needs_cleaning(self, original_key: str) -> bool:
         """Check if filename needs cleaning."""
         return self.clean_filename(original_key) != original_key
-    
-    def update_file_extension(self, file_key: str, new_extension: str) -> str:
-        """
-        Update the file extension in the S3 object key.
-        
-        Args:
-            file_key: Original S3 object key
-            new_extension: New extension to apply (e.g., '.pdf')
-            
-        Returns:
-            Updated file key with new extension
-        """
-        try:
-            # Split into directory and filename
-            dirname, basename = file_key.rsplit('/', 1) if '/' in file_key else ('', file_key)
-            
-            # Remove current extension and add new one
-            filename_without_ext = os.path.splitext(basename)[0]
-            new_filename = filename_without_ext + new_extension
-            
-            # Reconstruct full path
-            new_key = f"{dirname}/{new_filename}".replace("//", "/") if dirname else new_filename
-            
-            self.logger.debug(f"Updated extension: {file_key} -> {new_key}")
-            return new_key
-            
-        except Exception as e:
-            self.logger.error(f"Error updating file extension for {file_key}: {e}")
-            return file_key
