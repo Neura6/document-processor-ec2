@@ -81,21 +81,6 @@ class SQSWorker:
                 if success:
                     self._delete_message(message, "unknown")
                     
-                            # Get the current receive count, default to 1 if not available
-                            receive_count = int(message.get('Attributes', {}).get('ApproximateReceiveCount', '1'))
-                            
-                            if receive_count <= self.max_retries + 1:  # +1 for initial attempt
-                                logger.info(f"File not found, will retry ({receive_count}/{self.max_retries + 1}): {object_key}")
-                                # Don't delete the message, let it go back to the queue
-                                time.sleep(self.retry_delay)
-                            else:
-                                logger.warning(f"Max retries ({self.max_retries}) reached, giving up on: {object_key}")
-                                self._delete_message(message, object_key)
-                        else:
-                            # For other errors, log and delete the message to prevent infinite retries
-                            logger.error(f"Error processing {object_key}: {e}")
-                            self._delete_message(message, object_key)
-                    
                     messages_processed.inc()
             
             except KeyError as e:
