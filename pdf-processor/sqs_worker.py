@@ -13,7 +13,7 @@ import boto3
 from botocore.exceptions import ClientError
 from urllib.parse import unquote_plus
 from services.orchestrator import Orchestrator
-from monitoring.metrics import start_metrics_server, queue_depth, messages_processed
+from monitoring.metrics import start_metrics_server, queue_depth, messages_processed, active_processing_jobs
 
 # Configure logging
 logging.basicConfig(
@@ -45,10 +45,24 @@ class SQSWorker:
                 QueueUrl=self.queue_url,
                 AttributeNames=['ApproximateNumberOfMessages']
             )
-            return int(response['Attributes']['ApproximateNumberOfMessages'])
+            depth = int(response['Attributes']['ApproximateNumberOfMessages'])
+            queue_depth.set(depth)  # Update real-time metric
+            return depth
         except Exception as e:
             logger.error(f"Error getting queue depth: {e}")
             return 0
+    
+    def update_queue_depth(self) -> None:
+        """Update queue depth metric in real-time"""
+        try:
+            response = self.sqs.get_queue_attributes(
+                QueueUrl=self.queue_url,
+                AttributeNames=['ApproximateNumberOfMessages']
+            )
+            depth = int(response['Attributes']['ApproximateNumberOfMessages'])
+            queue_depth.set(depth)
+        except Exception as e:
+            logger.error(f"Error updating queue depth: {e}")
     
     def process_messages(self, messages):
         """Process messages from SQS queue
@@ -63,37 +77,10 @@ class SQSWorker:
         
         for message in messages:
             try:
-                body = json.loads(message['Body'])
-                records = body.get('Records', [])
-                
-                for record in records:
-                    s3_record = record.get('s3', {})
-                    bucket_name = s3_record.get('bucket', {}).get('name')
-                    object_key = s3_record.get('object', {}).get('key')
+                success = self.process_message(message)
+                if success:
+                    self._delete_message(message, "unknown")
                     
-                    if not all([bucket_name, object_key]):
-                        logger.error(f"Invalid S3 event format: {body}")
-                        continue
-                    
-                    # URL decode the object key to handle spaces properly
-                    object_key = unquote_plus(object_key)
-                    
-                    # Log with proper path formatting
-                    display_path = object_key.replace('+', ' ')
-                    logger.info(f"Processing file: s3://{bucket_name}/{display_path}")
-                    
-                    # Ensure we pass the properly decoded key to orchestrator
-                    object_key = object_key.replace('+', ' ')
-                    
-                    try:
-                        # Process the file through orchestrator
-                        success = self.orchestrator.process_single_file(object_key)
-                        if success:
-                            logger.info(f"Successfully processed: {object_key}")
-                            self._delete_message(message, object_key)
-                            
-                    except Exception as e:
-                        if 'NoSuchKey' in str(e):
                             # Get the current receive count, default to 1 if not available
                             receive_count = int(message.get('Attributes', {}).get('ApproximateReceiveCount', '1'))
                             
@@ -145,56 +132,61 @@ class SQSWorker:
                     QueueUrl=self.queue_url,
                     ReceiptHandle=receipt_handle
                 )
-                logger.debug(f"Deleted message with receipt handle: {receipt_handle}")
+                logger.debug(f"Deleted message with receipt handle: {receipt_handle[:20]}...")
             except Exception as e:
                 logger.error(f"Error deleting message: {e}")
-                raise
-    
-    def poll_sqs(self, max_messages: int = 10) -> List[Dict]:
-        """Poll SQS for messages"""
-        try:
-            response = self.sqs.receive_message(
-                QueueUrl=self.queue_url,
-                MaxNumberOfMessages=max_messages,
-                WaitTimeSeconds=10
-            )
-            return response.get('Messages', [])
-        except Exception as e:
-            logger.error(f"Error polling SQS: {str(e)}")
-            return []
     
     def run(self):
-        """Main worker loop with batch processing"""
+        """Main worker loop with real-time metrics"""
         logger.info("Starting SQS Worker...")
         start_metrics_server(port=8000)
         
         while True:
             try:
-                # Poll for up to 10 messages
-                messages = self.poll_sqs(max_messages=10)
+                # Update queue depth before processing
+                self.update_queue_depth()
                 
-                if messages:
-                    logger.info(f"Received {len(messages)} messages from queue")
-                    
-                    # Process messages
-                    processed_receipts = self.process_messages(messages)
-                    
-                    # Delete processed messages
-                    if processed_receipts:
-                        self.delete_messages(processed_receipts)
-                else:
+                # Get messages from SQS
+                response = self.sqs.receive_message(
+                    QueueUrl=self.queue_url,
+                    MaxNumberOfMessages=self.max_messages,
+                    WaitTimeSeconds=self.wait_time,
+                    VisibilityTimeout=self.visibility_timeout
+                )
+                
+                if 'Messages' not in response:
+                    logger.debug("No messages received, waiting...")
                     time.sleep(5)
-                    
-            except Exception as e:
-                logger.error(f"Worker error: {str(e)}")
-                time.sleep(10)
+                    continue
+                
+                messages = response['Messages']
+                logger.info(f"Received {len(messages)} messages")
+                
+                # Process messages
+                receipt_handles_to_delete = []
+                
+                for message in messages:
+                    try:
+                        success = self.process_message(message)
+                        if success:
+                            receipt_handles_to_delete.append(message['ReceiptHandle'])
+                    except Exception as e:
+                        logger.error(f"Error processing message: {e}")
+                
+                # Delete successfully processed messages
+                if receipt_handles_to_delete:
+                    self.delete_messages(receipt_handles_to_delete)
+                
+                # Update queue depth after batch processing
+                self.update_queue_depth()
                 
             except KeyboardInterrupt:
-                logger.info("Worker stopped by user")
+                logger.info("Received interrupt signal, shutting down...")
                 break
-                time.sleep(5)
+            except Exception as e:
+                logger.error(f"Error in processing loop: {e}")
+                time.sleep(10)
     
-
 if __name__ == "__main__":
     worker = SQSWorker()
     worker.run()
