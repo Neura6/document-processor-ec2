@@ -109,6 +109,46 @@ class SQSWorker:
         
         return True
         
+    def process_message(self, message: Dict[str, Any]) -> bool:
+        """Process a single SQS message with real-time metrics"""
+        try:
+            body = json.loads(message['Body'])
+            
+            # Handle S3 event notifications
+            if 'Records' in body:
+                for record in body['Records']:
+                    if record['eventName'].startswith('ObjectCreated'):
+                        bucket = record['s3']['bucket']['name']
+                        key = unquote_plus(record['s3']['object']['key'])
+                        
+                        logger.info(f"Processing file: {bucket}/{key}")
+                        
+                        # Process the file
+                        success = self.orchestrator.process_single_file(key)
+                        
+                        # Update queue depth after processing
+                        self.update_queue_depth()
+                        
+                        if success:
+                            logger.info(f"Successfully processed: {key}")
+                        else:
+                            logger.error(f"Failed to process: {key}")
+                        
+                        return success
+            
+            logger.warning("No valid S3 event records found in message")
+            return False
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"Invalid JSON in message: {e}")
+            return False
+        except KeyError as e:
+            logger.error(f"Missing required field in message: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error processing message: {e}")
+            return False
+
     def delete_messages(self, receipt_handles: List[str]):
         """Delete processed messages from queue"""
         for receipt_handle in receipt_handles:
