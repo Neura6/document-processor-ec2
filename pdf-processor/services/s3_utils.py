@@ -5,7 +5,6 @@ Provides utility functions for S3 operations including file movement and copying
 
 import boto3
 import logging
-from typing import bool
 
 logger = logging.getLogger(__name__)
 
