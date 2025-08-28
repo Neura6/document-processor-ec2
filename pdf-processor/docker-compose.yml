@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   pdf-processor:
     build: .
@@ -10,8 +8,11 @@ services:
       - AWS_REGION=${AWS_REGION:-us-east-1}
       - SOURCE_BUCKET=${SOURCE_BUCKET:-rules-repository}
       - CHUNKED_BUCKET=${CHUNKED_BUCKET:-chunked-rules-repository}
+      - UNPROCESSED_BUCKET=${UNPROCESSED_BUCKET:-unprocessed-files-error-on-pdf-processing}
       - SQS_QUEUE_URL=${SQS_QUEUE_URL}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - OCR_DPI=${OCR_DPI:-300}
+      - PYTHONUNBUFFERED=1
     volumes:
       - ./logs:/app/logs
       - ./config:/app/config
