@@ -14,7 +14,7 @@ from botocore.exceptions import ClientError
 from urllib.parse import unquote_plus
 from services.orchestrator import Orchestrator
 from services.sqs_monitor import SQSMonitor
-from monitoring.metrics import start_metrics_server, queue_depth, messages_processed
+from monitoring.metrics import start_metrics_server, sqs_messages_available, messages_processed
 
 # Configure logging
 logging.basicConfig(
