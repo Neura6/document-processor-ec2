@@ -135,11 +135,24 @@ class Orchestrator:
             else:
                 ocr_processing_total.labels(status='skipped').inc()
 
+            # Clean filename while preserving folder structure
+            folder_path = '/'.join(file_key.split('/')[:-1]) if '/' in file_key else ''
+            original_filename = file_key.split('/')[-1]
+            cleaned_filename_only = self.filename_service.clean_filename(original_filename)
+            
+            if folder_path:
+                cleaned_filename = f"{folder_path}/{cleaned_filename_only}"
+            else:
+                cleaned_filename = cleaned_filename_only
+                
+            self.logger.info(f"Original: {original_filename} -> Cleaned: {cleaned_filename_only}")
+            self.logger.info(f"Full cleaned path: {cleaned_filename}")
+
             # Chunking
             files_in_chunking.inc()
             pipeline_stage_files.labels(stage='chunking').inc()
             chunk_start = time.time()
-            chunks = self.chunking_service.chunk_pdf(pdf_stream, file_key)
+            chunks = self.chunking_service.chunk_pdf(pdf_stream, cleaned_filename)
             processing_duration_seconds.labels(stage='chunking').observe(time.time() - chunk_start)
             chunks_created_total.inc(len(chunks))
             files_in_chunking.dec()
@@ -158,9 +171,15 @@ class Orchestrator:
                 output.seek(0)
                 
                 page_num = metadata.get('page_number', 1)
-                # Preserve original folder structure in chunk key
-                base_name = os.path.splitext(file_key)[0]
-                chunk_key = f"{base_name}_page_{page_num}.pdf"
+                # Use cleaned filename for chunk key, preserving folder structure
+                folder_path = '/'.join(cleaned_filename.split('/')[:-1]) if '/' in cleaned_filename else ''
+                filename_only = cleaned_filename.split('/')[-1]
+                base_name = os.path.splitext(filename_only)[0]
+                
+                if folder_path:
+                    chunk_key = f"{folder_path}/{base_name}_page_{page_num}.pdf"
+                else:
+                    chunk_key = f"{base_name}_page_{page_num}.pdf"
                 
                 upload_start = time.time()
                 if self.s3_service.put_object(self.CHUNKED_BUCKET, chunk_key, output.getvalue()):
@@ -171,7 +190,13 @@ class Orchestrator:
                     
                     # Create metadata file for the uploaded chunk
                     try:
-                        self.chunking_service.metadata_service.create_metadata_for_file(chunk_key, self.CHUNKED_BUCKET)
+                        folder_name = folder_path.split('/')[-1] if folder_path else 'default'
+                        self.chunking_service.metadata_service.create_metadata_file(
+                            bucket=self.CHUNKED_BUCKET,
+                            key=chunk_key,
+                            folder=folder_name,
+                            original_filename=filename_only
+                        )
                         self.logger.info(f"Created metadata file for: {chunk_key}")
                     except Exception as e:
                         self.logger.error(f"Failed to create metadata file for {chunk_key}: {e}")
