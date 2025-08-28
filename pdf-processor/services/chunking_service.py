@@ -6,7 +6,6 @@ Handles PDF chunking into individual pages with metadata.
 import PyPDF2
 from io import BytesIO
 import logging
-import os
 from typing import List, Dict, Any, Tuple
 from datetime import datetime
 from reportlab.pdfgen import canvas
@@ -25,7 +24,7 @@ class ChunkingService:
     
     def extract_metadata(self, key: str, page_number: int = 1, total_pages: int = 1) -> Dict[str, Any]:
         """
-        Extract metadata from S3 key exactly as done in Lambda extract_metadata_from_source_key
+        Extract metadata from S3 key exactly as done in data_cleaner.py
         
         Args:
             key: S3 object key
@@ -33,92 +32,49 @@ class ChunkingService:
             total_pages: Total pages in the PDF
             
         Returns:
-            Dictionary with metadata matching Lambda format
+            Dictionary with metadata matching data_cleaner.py format
         """
         parts = key.split('/')
         folder = parts[0]
         filename = parts[-1]
         
-        # Build base metadata
+        # Build metadata exactly like data_cleaner.py
         metadata = {
-            'document_name': os.path.splitext(filename)[0],
+            'document_name': filename.rsplit('.', 1)[0],
             'processed_file_path': key,
             'page_number': page_number,
             'total_pages': total_pages,
-            'chunk_s3_uri': f"s3://{CHUNKED_BUCKET}/{key.rsplit('.', 1)[0]}_page_{page_number}.pdf",
-            'standard_type': folder
+            'chunk_s3_uri': f"s3://{CHUNKED_BUCKET}/{key.rsplit('.', 1)[0]}_page_{page_number}.pdf"
         }
         
-        # Extract metadata based on folder structure - EXACT Lambda logic
-        if folder in ['Auditing-global', 'Finance Tools', 'GIFT City']:
-            if len(parts) > 1:
-                if len(parts) > 2:
-                    metadata['Standard_type'] = parts[1]  # Note: inconsistent capitalization
-                if len(parts) > 3:
-                    metadata['document_type'] = parts[2]
-                if len(parts) > 4:
-                    # This logic was a bit inconsistent, leaving as is based on original code structure.
-                    pass
-                if len(parts) > 1:
-                    metadata['document_name'] = os.path.splitext(parts[-1])[0]
-                    
-        elif folder == 'accounting-global':
-            if len(parts) > 1:
-                metadata['complexity'] = parts[1]
-                if len(parts) > 2:
-                    metadata['Standard_type'] = parts[2]  # Note: inconsistent capitalization
-                if len(parts) > 3:
-                    metadata['document_type'] = parts[3]
-                if len(parts) > 4:
-                    # This logic was a bit inconsistent, leaving as is based on original code structure.
-                    pass
-                if len(parts) > 1:
-                    metadata['document_name'] = os.path.splitext(parts[-1])[0]
-                    
+        # Extract country, document_type, standard_type from path structure
+        if len(parts) >= 1:
+            metadata['standard_type'] = parts[0]
+        
+        if len(parts) >= 2:
+            metadata['country'] = parts[1]
+        
+        if len(parts) >= 3:
+            metadata['document_type'] = parts[2]
+        elif len(parts) >= 2:
+            metadata['document_type'] = filename
+        
+        # Handle special folder structures like original
+        if folder == 'Banking Regulations':
+            metadata['standard_type'] = 'Banking Regulation'
         elif folder == 'Banking Regulations-test' and len(parts) > 1 and parts[1] == 'Bahrain':
+            # Special handling for Banking Regulations-test Bahrain structure
             if len(parts) > 2:
                 metadata['country'] = parts[1]
                 metadata['complexity'] = parts[2]
-                if len(parts) > 4:
-                    metadata['document_type'] = parts[3]
-                if len(parts) > 5:
-                    metadata['document_category'] = parts[4]
-                if len(parts) > 6:
-                    metadata['document_sub-category'] = parts[5]
-                if len(parts) > 7:
-                    metadata['document_name'] = os.path.splitext(parts[-1])[0]
-                    
-        elif folder in ['accounting-standards','commercial-laws','Banking Regulations','Direct Taxes','Capital Market Regulations','Auditing Standards','Insurance','Labour Law']:
-            if len(parts) > 1:
-                metadata['country'] = parts[1]
-                if len(parts) > 3:
-                    metadata['document_type'] = parts[2]
-                if len(parts) > 4:
-                    metadata['document_category'] = parts[3]
-                if len(parts) > 5:
-                    metadata['document_sub-category'] = parts[4]
-                if len(parts) > 1:
-                    metadata['document_name'] = os.path.splitext(parts[-1])[0]
-                    
+            if len(parts) > 3:
+                metadata['document_type'] = parts[3]
+            if len(parts) > 4:
+                metadata['document_category'] = parts[4]
+        elif folder == 'Direct Taxes':
+            metadata['standard_type'] = 'Direct Tax'
         elif folder == 'Indirect Taxes':
-            if len(parts) > 1:
-                metadata['country'] = parts[1]
-                if len(parts) > 3:
-                    metadata['document_type'] = parts[2]
-                if len(parts) > 4:
-                    metadata['State'] = parts[3]
-                if len(parts) > 5:
-                    metadata['State_category'] = parts[4]
-                if len(parts) > 1:
-                    metadata['document_name'] = os.path.splitext(parts[-1])[0]
-                    
-        elif folder == 'usecase-reports-4':
-            if len(parts) > 1:
-                metadata['country'] = parts[1]
-                if len(parts) > 2:
-                    metadata['year'] = parts[2]
-                if len(parts) > 1:
-                    metadata['document_name'] = os.path.splitext(parts[-1])[0]
+            metadata['standard_type'] = 'Indirect Tax'
         
         return metadata
     
