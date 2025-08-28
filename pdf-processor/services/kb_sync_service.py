@@ -1,6 +1,6 @@
 """
 Knowledge Base Sync Service
-Implements Bedrock ingestion job management and error handling
+Implements Bedrock ingestion job management and error handling with concurrency control
 """
 
 import json
@@ -11,6 +11,8 @@ import re
 import time
 import logging
 import os
+import threading
+import fcntl
 from typing import Dict, List, Any, Optional
 
 # Setup logging
@@ -49,7 +51,7 @@ class KBMappingConfig:
     UNPROCESSED_FOLDER = 'to_further_process'
 
 class KBIngestionService:
-    """Service for managing Bedrock Knowledge Base ingestion jobs"""
+    """Service for managing Bedrock Knowledge Base ingestion jobs with concurrency control"""
     
     def __init__(self, aws_access_key_id: str, aws_secret_access_key: str, region_name: str = 'us-east-1'):
         """Initialize KB sync service with AWS credentials"""
@@ -71,83 +73,209 @@ class KBIngestionService:
         )
         self.config = KBMappingConfig()
         
+        # Thread-safe in-memory locks
+        self._in_memory_locks = {}
+        self._lock_manager = threading.Lock()
+        
+        # File-based locks for persistence across container restarts
+        self._lock_dir = '/tmp/kb_locks'
+        os.makedirs(self._lock_dir, exist_ok=True)
+        
+        # Pattern for detecting token limit errors
+        self.token_error_pattern = re.compile(r'file\s+([^\s]+)\s+.*token\s+limit', re.IGNORECASE)
+
+    def _acquire_kb_lock(self, kb_id: str, timeout: int = 3600) -> bool:
+        """
+        Acquire a lock for a specific knowledge base to prevent concurrent syncs.
+        Uses both in-memory and file-based locking for robustness.
+        """
+        lock_file = os.path.join(self._lock_dir, f"kb_{kb_id}.lock")
+        
+        try:
+            # File-based lock
+            fd = os.open(lock_file, os.O_CREAT | os.O_RDWR)
+            
+            # Try to acquire exclusive lock (non-blocking)
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                
+                # Write process info to lock file
+                lock_info = {
+                    'pid': os.getpid(),
+                    'timestamp': time.time(),
+                    'kb_id': kb_id
+                }
+                os.write(fd, json.dumps(lock_info).encode())
+                os.fsync(fd)
+                
+                # Also add to in-memory locks
+                with self._lock_manager:
+                    self._in_memory_locks[kb_id] = {'fd': fd, 'start_time': time.time()}
+                
+                logger.info(f"🔒 Acquired lock for KB {kb_id}")
+                return True
+                
+            except (IOError, OSError):
+                # Lock is already held by another process
+                os.close(fd)
+                
+                # Check if lock is stale (older than timeout)
+                try:
+                    with open(lock_file, 'r') as f:
+                        lock_data = json.load(f)
+                        if time.time() - lock_data.get('timestamp', 0) > timeout:
+                            logger.warning(f"🗑️  Removing stale lock for KB {kb_id}")
+                            os.remove(lock_file)
+                            return self._acquire_kb_lock(kb_id, timeout)
+                except:
+                    pass
+                    
+                return False
+                
+        except Exception as e:
+            logger.error(f"❌ Error acquiring lock for KB {kb_id}: {str(e)}")
+            return False
+
+    def _release_kb_lock(self, kb_id: str) -> bool:
+        """Release the lock for a specific knowledge base"""
+        try:
+            with self._lock_manager:
+                if kb_id in self._in_memory_locks:
+                    lock_info = self._in_memory_locks.pop(kb_id)
+                    fd = lock_info['fd']
+                    
+                    # Release file lock
+                    fcntl.flock(fd, fcntl.LOCK_UN)
+                    os.close(fd)
+                    
+                    # Remove lock file
+                    lock_file = os.path.join(self._lock_dir, f"kb_{kb_id}.lock")
+                    if os.path.exists(lock_file):
+                        os.remove(lock_file)
+                    
+                    logger.info(f"🔓 Released lock for KB {kb_id}")
+                    return True
+            return False
+            
+        except Exception as e:
+            logger.error(f"❌ Error releasing lock for KB {kb_id}: {str(e)}")
+            return False
+
+    def _wait_for_kb_lock(self, kb_id: str, max_wait: int = 7200, check_interval: int = 30) -> bool:
+        """
+        Wait for a knowledge base lock to become available.
+        Returns True when lock is acquired, False if timeout occurs.
+        """
+        start_time = time.time()
+        attempt = 0
+        
+        while time.time() - start_time < max_wait:
+            attempt += 1
+            
+            if self._acquire_kb_lock(kb_id):
+                return True
+                
+            elapsed = time.time() - start_time
+            if attempt % 10 == 0:  # Log every 5 minutes
+                logger.info(f"⏳ Waiting for KB {kb_id} lock... ({elapsed:.0f}s elapsed)")
+            
+            time.sleep(check_interval)
+        
+        logger.error(f"⏰ Timeout waiting for KB {kb_id} lock after {max_wait}s")
+        return False
+
     def sync_and_handle_failed_files(self, folder: str) -> Dict[str, Any]:
         """
         Starts an ingestion job, identifies failed files due to token limits,
         moves them to the unprocessed bucket's to_further_process folder,
-        and starts a second sync job.
+        and starts a second sync job. Includes concurrency control.
         """
         kb_info = self.config.KB_MAPPING[folder]
+        kb_id = kb_info['id']
         failed_files_initial_sync = []
         files_successfully_moved = []
 
-        # Step 1: Initial Sync Attempt
-        job_id_step1 = None
+        # Acquire lock for this knowledge base
+        if not self._wait_for_kb_lock(kb_id):
+            return {'status': 'LOCK_TIMEOUT', 'message': f'Could not acquire lock for KB {kb_id}'}
+
         try:
-            client_token_step1 = str(uuid.uuid4())
-            description_step1 = f"Initial batch sync for {folder}"
-            response = self.bedrock_client.start_ingestion_job(
-                clientToken=client_token_step1,
-                dataSourceId=kb_info['data_source_id'],
-                knowledgeBaseId=kb_info['id'],
-                description=description_step1
-            )
-            job_id_step1 = response['ingestionJob']['ingestionJobId']
-            logger.info(f"Started initial ingestion job {job_id_step1} for folder {folder}")
+            # Step 1: Initial Sync Attempt
+            job_id_step1 = None
+            try:
+                client_token_step1 = str(uuid.uuid4())
+                description_step1 = f"Initial batch sync for {folder}"
+                response = self.bedrock_client.start_ingestion_job(
+                    clientToken=client_token_step1,
+                    dataSourceId=kb_info['data_source_id'],
+                    knowledgeBaseId=kb_info['id'],
+                    description=description_step1
+                )
+                job_id_step1 = response['ingestionJob']['ingestionJobId']
+                logger.info(f"Started initial ingestion job {job_id_step1} for folder {folder}")
 
-            wait_result_step1 = self.wait_for_ingestion_job(kb_info, job_id_step1)
+                wait_result_step1 = self.wait_for_ingestion_job(kb_info, job_id_step1)
 
-            if 'failed_files' in wait_result_step1 and wait_result_step1['failed_files']:
-                failed_files_initial_sync.extend(wait_result_step1['failed_files'])
-                logger.warning(f"Initial sync failed for these files due to token limits: {failed_files_initial_sync}")
+                if 'failed_files' in wait_result_step1 and wait_result_step1['failed_files']:
+                    failed_files_initial_sync.extend(wait_result_step1['failed_files'])
+                    logger.warning(f"Initial sync failed for these files due to token limits: {failed_files_initial_sync}")
 
-            # Step 2: Move Failed Files to Unprocessed Bucket
-            if failed_files_initial_sync:
-                logger.info(f"Moving {len(failed_files_initial_sync)} files to unprocessed bucket ({self.config.UNPROCESSED_FOLDER}/).")
-                for failed_file_key in failed_files_initial_sync:
-                    destination_key = f"{self.config.UNPROCESSED_FOLDER}/{os.path.basename(failed_file_key)}"
-                    # move_s3_object will be implemented when needed
-                    files_successfully_moved.append(destination_key)
+                # Step 2: Move Failed Files to Unprocessed Bucket
+                if failed_files_initial_sync:
+                    logger.info(f"Moving {len(failed_files_initial_sync)} files to unprocessed bucket ({self.config.UNPROCESSED_FOLDER}/).")
+                    for failed_file_key in failed_files_initial_sync:
+                        destination_key = f"{self.config.UNPROCESSED_FOLDER}/{os.path.basename(failed_file_key)}"
+                        # move_s3_object will be implemented when needed
+                        files_successfully_moved.append(destination_key)
 
-        except Exception as e:
-            logger.error(f"Error during initial sync job start or wait for folder {folder}: {str(e)}")
-            return {'status': 'Error', 'message': f"Initial sync job failed to start or complete successfully: {str(e)}"}
+            except Exception as e:
+                logger.error(f"Error during initial sync job start or wait for folder {folder}: {str(e)}")
+                return {'status': 'Error', 'message': f"Initial sync job failed to start or complete successfully: {str(e)}"}
 
-        # Step 3: Start a Second Sync Attempt for Remaining Files
-        job_id_step2 = None
-        try:
-            client_token_step2 = str(uuid.uuid4())
-            description_step2 = f"Retry sync after moving failed files for {folder}"
-            response = self.bedrock_client.start_ingestion_job(
-                clientToken=client_token_step2,
-                dataSourceId=kb_info['data_source_id'],
-                knowledgeBaseId=kb_info['id'],
-                description=description_step2
-            )
-            job_id_step2 = response['ingestionJob']['ingestionJobId']
-            logger.info(f"Started retry ingestion job {job_id_step2} for folder {folder}")
+            # Step 3: Start a Second Sync Attempt for Remaining Files
+            job_id_step2 = None
+            try:
+                client_token_step2 = str(uuid.uuid4())
+                description_step2 = f"Retry sync after moving failed files for {folder}"
+                response = self.bedrock_client.start_ingestion_job(
+                    clientToken=client_token_step2,
+                    dataSourceId=kb_info['data_source_id'],
+                    knowledgeBaseId=kb_info['id'],
+                    description=description_step2
+                )
+                job_id_step2 = response['ingestionJob']['ingestionJobId']
+                logger.info(f"Started retry ingestion job {job_id_step2} for folder {folder}")
 
-            wait_result_step2 = self.wait_for_ingestion_job(kb_info, job_id_step2)
-            if wait_result_step2.get('status') != 'COMPLETE':
-                logger.warning(f"Retry sync job {job_id_step2} completed with status: {wait_result_step2.get('status')}")
+                wait_result_step2 = self.wait_for_ingestion_job(kb_info, job_id_step2)
+                if wait_result_step2.get('status') != 'COMPLETE':
+                    logger.warning(f"Retry sync job {job_id_step2} completed with status: {wait_result_step2.get('status')}")
 
-        except Exception as e:
-            logger.error(f"Error during retry sync job for folder {folder}: {str(e)}")
-            return {'status': 'Completed with Errors and Unprocessed Files', 'files_moved_to_unprocessed': files_successfully_moved, 'retry_sync_error': str(e)}
+            except Exception as e:
+                logger.error(f"Error during retry sync job for folder {folder}: {str(e)}")
+                return {'status': 'Completed with Errors and Unprocessed Files', 'files_moved_to_unprocessed': files_successfully_moved, 'retry_sync_error': str(e)}
 
-        # Final Result
-        if files_successfully_moved:
-            logger.warning(f"Processing completed for folder {folder}. Files moved to {self.config.UNPROCESSED_BUCKET}/{self.config.UNPROCESSED_FOLDER}: {files_successfully_moved}")
-            return {'status': 'Completed with Failed Files', 'files_moved_to_unprocessed': files_successfully_moved}
-        else:
-            logger.info(f"Processing completed successfully for folder {folder}. No files moved to unprocessed bucket.")
-            return {'status': 'COMPLETE'}
+            # Final Result
+            if files_successfully_moved:
+                logger.warning(f"Processing completed for folder {folder}. Files moved to {self.config.UNPROCESSED_BUCKET}/{self.config.UNPROCESSED_FOLDER}: {files_successfully_moved}")
+                return {'status': 'Completed with Failed Files', 'files_moved_to_unprocessed': files_successfully_moved}
+            else:
+                logger.info(f"Processing completed successfully for folder {folder}. No files moved to unprocessed bucket.")
+                return {'status': 'COMPLETE'}
+                
+        finally:
+            # Always release the lock
+            self._release_kb_lock(kb_id)
 
     def sync_to_knowledge_base_simple(self, folder: str, is_delete: bool = False) -> Dict[str, Any]:
-        """Starts and waits for a single Bedrock ingestion job for a folder."""
+        """Starts and waits for a single Bedrock ingestion job for a folder with concurrency control."""
         kb_info = self.config.KB_MAPPING[folder]
+        kb_id = kb_info['id']
         client_token = str(uuid.uuid4())
         description = f"{'Deletion sync' if is_delete else 'Batch sync'} for {folder}"
+
+        # Acquire lock for this knowledge base
+        if not self._wait_for_kb_lock(kb_id):
+            return {'status': 'LOCK_TIMEOUT', 'message': f'Could not acquire lock for KB {kb_id}'}
 
         try:
             # Log KB details for transparency
@@ -197,6 +325,9 @@ class KBIngestionService:
         except Exception as e:
             logger.error(f"[KB-SYNC] ❌ Error during sync job for folder {folder}: {str(e)}")
             raise
+        finally:
+            # Always release the lock
+            self._release_kb_lock(kb_id)
 
     def wait_for_ingestion_job(self, kb_info: Dict[str, str], job_id: str) -> Dict[str, Any]:
         """
