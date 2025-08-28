@@ -1,6 +1,6 @@
 """
 Knowledge Base Sync Service
-Implements Bedrock ingestion job management and error handling
+Manages Bedrock ingestion jobs with error handling and failed file recovery.
 """
 
 import json
@@ -13,45 +13,54 @@ import logging
 import os
 from typing import Dict, List, Any, Optional
 
-# Setup logging
+# Configure logging
 logger = logging.getLogger(__name__)
 
+# Unprocessed file storage configuration
+UNPROCESSED_BUCKET = 'unprocessed-files-error-on-pdf-processing'
+UNPROCESSED_FOLDER = 'to_further_process'
+
 class KBMappingConfig:
-    """Knowledge Base mapping configuration"""
+    """Knowledge Base mapping configuration for all document types."""
     
     KB_MAPPING = {
-        'accounting-standards': {'id': '1XYVHJWXEA', 'data_source_id': 'VQ53AYFFGO'},
-        'commercial-laws': {'id': 'CAQ6E0JJBW', 'data_source_id': 'AY5EWVXYF6'},
-        'usecase-reports': {'id': 'WHF3OXB1MQ', 'data_source_id': 'CN63WXZKZW'},
-        'Auditing Standards': {'id': 'XXFFTJYAD1', 'data_source_id': 'OH8L2PTHYU'},
-        'Banking Regulations': {'id': 'VDMWYPSOYO', 'data_source_id': 'I6QTPRZOSP'},
-        'Capital Market Regulations': {'id': 'UI4DH8O8GX', 'data_source_id': '8JKIFZD7HF'},
-        'Direct Taxes': {'id': 'PV2IGEHKRK', 'data_source_id': 'XNBPX5WR3B'},
-        'Indirect Taxes': {'id': 'QTTHYYFCZ9', 'data_source_id': 'JDT9KAXQJL'},
-        'Insurance': {'id': 'ECWHGFSH1R', 'data_source_id': 'LPBCRYCSEM'},
-        'Labour Law': {'id': 'CAQ6E0JJBW', 'data_source_id': 'PLIPBARA5R'},
-        'Finance Tools': {'id': '1XYVHJWXEA', 'data_source_id': '18HMESLJIY'},
-        'GIFT City': {'id': 'VDMWYPSOYO', 'data_source_id': 'RL7KXCTETU'},
-        'usecase-reports-2': {'id': 'WHF3OXB1MQ', 'data_source_id': '8UK78XZFIF'},
-        'Direct-Taxes-case-laws': {'id': 'UJNOWHQEQ9', 'data_source_id': '9OUZYLFVCV'},
-        'Indirect-Taxes-case-laws': {'id': 'PMF8OY8ZSG', 'data_source_id': 'WRRCYQD3R0'},
-        'Insurance-caselaws': {'id': 'IUB7BI5IXQ', 'data_source_id': 'CB2LPPFQUW'},
-        'usecase-reports-4': {'id': 'WHF3OXB1MQ', 'data_source_id': 'CN63WXZKZW'},
-        'commercial-case-laws': {'id': 'DQ6AIARMNQ', 'data_source_id': 'NXNCQID5NX'}
-    }
+    'accounting-standards': {'id': '1XYVHJWXEA', 'data_source_id': 'VQ53AYFFGO'},
+    'accounting-global': {'id': 'BPFC6I50NY', 'data_source_id': 'C7NTSCZJPA'},
+    'commercial-laws': {'id': 'CAQ6E0JJBW', 'data_source_id': 'AY5EWVXYF6'},
+    'usecase-reports': {'id': 'WHF3OXB1MQ', 'data_source_id': 'X4FZFSK7QC'},
+    'Auditing Standards': {'id': 'XXFFTJYAD1', 'data_source_id': 'OH8L2PTHYU'},
+    'Auditing-global': {'id': 'GQOXRJAYPO', 'data_source_id': 'WWPU0ELXBR'},
+    'Banking Regulations': {'id': 'VDMWYPSOYO', 'data_source_id': 'I6QTPRZOSP'},
+    'Banking Regulations-test': {'id': 'S0X541AD9P', 'data_source_id': 'CIHLQL7Q5E'},
+    'Capital Market Regulations': {'id': 'UI4DH8O8GX', 'data_source_id': '8JKIFZD7HF'},
+    'Direct Taxes': {'id': 'PV2IGEHKRK', 'data_source_id': 'XNBPX5WR3B'},
+    'Indirect Taxes': {'id': 'QTTHYYFCZ9', 'data_source_id': 'JDT9KAXQJL'},
+    'Insurance': {'id': 'ECWHGFSH1R', 'data_source_id': 'LPBCRYCSEM'},
+    'Labour Law': {'id': 'CAQ6E0JJBW', 'data_source_id': 'PLIPBARA5R'},
+    'Finance Tools': {'id': '1XYVHJWXEA', 'data_source_id': '18HMESLJIY'},
+    'GIFT City': {'id': 'VDMWYPSOYO', 'data_source_id': 'RL7KXCTETU'},
+    'usecase-reports-2': {'id': 'WHF3OXB1MQ', 'data_source_id': 'DVNHB5JJT7'},
+    'Direct-Taxes-case-laws': {'id': 'UJNOWHQEQ9', 'data_source_id': '9OUZYLFVCV'},
+    'Indirect-Taxes-case-laws': {'id': 'PMF8OY8ZSG', 'data_source_id': 'WRRCYQD3R0'},
+    'Insurance-caselaws': {'id': 'IUB7BI5IXQ', 'data_source_id': 'CB2LPPFQUW'},
+    'usecase-reports-4': {'id': 'WHF3OXB1MQ', 'data_source_id': 'CN63WXZKZW'},
+    'commercial-case-laws': {'id': 'DQ6AIARMNQ', 'data_source_id': 'NXNCQID5NX'},
+
+}
     
     CHUNKED_BUCKET = 'chunked-rules-repository'
     UNPROCESSED_BUCKET = 'unprocessed-files-error-on-pdf-processing'
     UNPROCESSED_FOLDER = 'to_further_process'
 
 class KBIngestionService:
-    """Service for managing Bedrock Knowledge Base ingestion jobs"""
+    """Service for managing Bedrock Knowledge Base ingestion jobs with error recovery."""
     
     def __init__(self, aws_access_key_id: str, aws_secret_access_key: str, region_name: str = 'us-east-1'):
-        """Initialize KB sync service with AWS credentials"""
+        """Initialize KB sync service with AWS credentials."""
         import boto3
+        from .s3_utils import S3Utils
         
-        # Use boto3 with correct service name
+        # Initialize Bedrock agent client
         self.bedrock_client = boto3.client(
             'bedrock-agent',
             aws_access_key_id=aws_access_key_id,
@@ -65,19 +74,90 @@ class KBIngestionService:
             aws_secret_access_key=aws_secret_access_key,
             region_name=region_name
         )
+        self.s3_utils = S3Utils(aws_access_key_id, aws_secret_access_key, region_name)
         self.config = KBMappingConfig()
+    
+    def wait_for_ingestion_job(self, kb_info: Dict[str, str], job_id: str) -> Dict[str, Any]:
+        """
+        Polls the knowledge base for ingestion job status, extracts failed files
+        due to token limits if the job fails with relevant reasons.
+        """
+        max_attempts = 60  # Maximum polling attempts (30 minutes)
+        interval = 30      # Polling interval in seconds
+        failed_files_due_to_tokens = []
+        # Pattern to extract file paths from token error messages
+        token_error_pattern = re.compile(r"Issue occurred while processing file: (.*?\.\w+)\.")
+
+        logger.info(f"Monitoring ingestion job {job_id} for completion")
+
+        for attempt in range(max_attempts):
+            try:
+                response = self.bedrock_client.get_ingestion_job(
+                    dataSourceId=kb_info['data_source_id'],
+                    ingestionJobId=job_id,
+                    knowledgeBaseId=kb_info['id']
+                )
+                status = response['ingestionJob']['status']
+                failure_reasons = response['ingestionJob'].get('failureReasons', [])
+
+                if status == 'COMPLETE':
+                    logger.info(f"Ingestion job {job_id} completed successfully")
+                    return {'status': 'COMPLETE', 'failed_files': failed_files_due_to_tokens}
+
+                elif status == 'FAILED':
+                    logger.error(f"Ingestion job {job_id} failed: {failure_reasons}")
+
+                    # Extract files that failed due to token limits
+                    for reason in failure_reasons:
+                        if isinstance(reason, str):
+                            match = token_error_pattern.search(reason)
+                            if match:
+                                failed_file = match.group(1)
+                                if failed_file not in failed_files_due_to_tokens:
+                                    failed_files_due_to_tokens.append(failed_file)
+                                    logger.warning(f"Token limit exceeded for file: {failed_file}")
+
+                    # Return failed files if token errors detected
+                    if failed_files_due_to_tokens:
+                        logger.warning(f"Job {job_id} failed with token errors, returning failed files")
+                        return {'status': 'FAILED_TOKEN_ERROR', 'failed_files': failed_files_due_to_tokens}
+                    else:
+                        return {'status': 'FAILED_OTHER_ERROR', 'message': f'Ingestion job failed: {failure_reasons}'}
+
+                logger.info(f"Job {job_id} status: {status}, continuing to monitor")
+                time.sleep(interval)
+
+            except Exception as e:
+                logger.error(f"Error checking ingestion job status for job {job_id}: {str(e)}")
+                if failed_files_due_to_tokens:
+                    logger.warning(f"Polling error for job {job_id}, returning identified failed files")
+                    return {'status': 'ERROR_DURING_WAIT', 'failed_files': failed_files_due_to_tokens, 'polling_error': str(e)}
+                else:
+                    raise
+
+        # Handle timeout scenario
+        logger.error(f"Job {job_id} timed out after {max_attempts} attempts")
+        if failed_files_due_to_tokens:
+            logger.warning(f"Job {job_id} timed out, returning identified failed files")
+            return {'status': 'TIMEOUT_TOKEN_ERROR', 'failed_files': failed_files_due_to_tokens, 'timeout': True}
+        else:
+            raise Exception(f"Ingestion job {job_id} timed out after {max_attempts} attempts")
         
     def sync_and_handle_failed_files(self, folder: str) -> Dict[str, Any]:
         """
-        Starts an ingestion job, identifies failed files due to token limits,
-        moves them to the unprocessed bucket's to_further_process folder,
-        and starts a second sync job.
+        Execute ingestion job and handle files that fail due to token limits.
+        
+        Args:
+            folder: Document folder name to sync
+            
+        Returns:
+            Dict containing sync status and any moved files
         """
         kb_info = self.config.KB_MAPPING[folder]
         failed_files_initial_sync = []
         files_successfully_moved = []
 
-        # Step 1: Initial Sync Attempt
+        # Execute initial ingestion job
         job_id_step1 = None
         try:
             client_token_step1 = str(uuid.uuid4())
@@ -89,79 +169,80 @@ class KBIngestionService:
                 description=description_step1
             )
             job_id_step1 = response['ingestionJob']['ingestionJobId']
-            logger.info(f"Started initial ingestion job {job_id_step1} for folder {folder}")
+            logger.info(f"Started ingestion job {job_id_step1} for folder: {folder}")
 
             wait_result_step1 = self.wait_for_ingestion_job(kb_info, job_id_step1)
 
             if 'failed_files' in wait_result_step1 and wait_result_step1['failed_files']:
                 failed_files_initial_sync.extend(wait_result_step1['failed_files'])
-                logger.warning(f"Initial sync failed for these files due to token limits: {failed_files_initial_sync}")
-
-            # Step 2: Move Failed Files to Unprocessed Bucket
-            if failed_files_initial_sync:
-                logger.info(f"Moving {len(failed_files_initial_sync)} files to unprocessed bucket ({self.config.UNPROCESSED_FOLDER}/).")
-                for failed_file_key in failed_files_initial_sync:
-                    destination_key = f"{self.config.UNPROCESSED_FOLDER}/{os.path.basename(failed_file_key)}"
-                    # move_s3_object will be implemented when needed
-                    files_successfully_moved.append(destination_key)
+                logger.warning(f"Token limit failures detected: {len(failed_files_initial_sync)} files")
 
         except Exception as e:
             logger.error(f"Error during initial sync job start or wait for folder {folder}: {str(e)}")
-            return {'status': 'Error', 'message': f"Initial sync job failed to start or complete successfully: {str(e)}"}
+            return {'status': 'Error', 'message': f"Sync job failed to start or complete: {str(e)}"}
 
-        # Step 3: Start a Second Sync Attempt for Remaining Files
-        job_id_step2 = None
-        try:
-            client_token_step2 = str(uuid.uuid4())
-            description_step2 = f"Retry sync after moving failed files for {folder}"
-            response = self.bedrock_client.start_ingestion_job(
-                clientToken=client_token_step2,
-                dataSourceId=kb_info['data_source_id'],
-                knowledgeBaseId=kb_info['id'],
-                description=description_step2
-            )
-            job_id_step2 = response['ingestionJob']['ingestionJobId']
-            logger.info(f"Started retry ingestion job {job_id_step2} for folder {folder}")
+        # Move failed files to unprocessed bucket
+        if failed_files_initial_sync:
+            logger.info(f"Moving {len(failed_files_initial_sync)} failed files to unprocessed storage")
+            
+            for failed_file_key in failed_files_initial_sync:
+                # Generate destination path for unprocessed file
+                destination_key = f"{UNPROCESSED_FOLDER}/{os.path.basename(failed_file_key)}"
+                
+                # Move problematic file to unprocessed bucket
+                move_success = self.s3_utils.move_s3_object(
+                    self.config.CHUNKED_BUCKET, 
+                    failed_file_key, 
+                    UNPROCESSED_BUCKET, 
+                    destination_key
+                )
+                
+                if move_success:
+                    files_successfully_moved.append(destination_key)
+                    logger.info(f"Moved to unprocessed: {failed_file_key}")
+                else:
+                    logger.error(f"Failed to move: {failed_file_key}")
 
-            wait_result_step2 = self.wait_for_ingestion_job(kb_info, job_id_step2)
-            if wait_result_step2.get('status') != 'COMPLETE':
-                logger.warning(f"Retry sync job {job_id_step2} completed with status: {wait_result_step2.get('status')}")
-
-        except Exception as e:
-            logger.error(f"Error during retry sync job for folder {folder}: {str(e)}")
-            return {'status': 'Completed with Errors and Unprocessed Files', 'files_moved_to_unprocessed': files_successfully_moved, 'retry_sync_error': str(e)}
-
-        # Final Result
+        # Return final sync results
         if files_successfully_moved:
-            logger.warning(f"Processing completed for folder {folder}. Files moved to {self.config.UNPROCESSED_BUCKET}/{self.config.UNPROCESSED_FOLDER}: {files_successfully_moved}")
+            logger.warning(f"Sync completed for {folder} with {len(files_successfully_moved)} files moved to unprocessed storage")
             return {'status': 'Completed with Failed Files', 'files_moved_to_unprocessed': files_successfully_moved}
         else:
-            logger.info(f"Processing completed successfully for folder {folder}. No files moved to unprocessed bucket.")
+            logger.info(f"Sync completed successfully for folder: {folder}")
             return {'status': 'COMPLETE'}
 
     def sync_to_knowledge_base_simple(self, folder: str, is_delete: bool = False) -> Dict[str, Any]:
-        """Starts and waits for a single Bedrock ingestion job for a folder."""
+        """
+        Execute a simple ingestion job for a folder.
+        
+        Args:
+            folder: Document folder name to sync
+            is_delete: Whether this is a deletion operation
+            
+        Returns:
+            Dict containing sync status and results
+        """
         kb_info = self.config.KB_MAPPING[folder]
         client_token = str(uuid.uuid4())
         description = f"{'Deletion sync' if is_delete else 'Batch sync'} for {folder}"
 
         try:
-            # Log KB details for transparency
-            logger.info(f"[KB-SYNC] Starting sync for folder: {folder}")
-            logger.info(f"[KB-SYNC] Knowledge Base ID: {kb_info['id']}")
-            logger.info(f"[KB-SYNC] Data Source ID: {kb_info['data_source_id']}")
-            logger.info(f"[KB-SYNC] Sync Type: {'Deletion' if is_delete else 'Ingestion'}")
+            # Log knowledge base configuration
+            logger.info(f"Starting KB sync for folder: {folder}")
+            logger.info(f"Knowledge Base ID: {kb_info['id']}")
+            logger.info(f"Data Source ID: {kb_info['data_source_id']}")
+            logger.info(f"Sync Type: {'Deletion' if is_delete else 'Ingestion'}")
             
-            # Count files in folder
+            # Count files to be processed
             try:
                 response = self.s3_client.list_objects_v2(
                     Bucket=self.config.CHUNKED_BUCKET,
                     Prefix=folder + '/'
                 )
                 file_count = len(response.get('Contents', []))
-                logger.info(f"[KB-SYNC] Files to sync: {file_count} in s3://{self.config.CHUNKED_BUCKET}/{folder}/")
-            except:
-                logger.warning(f"[KB-SYNC] Could not count files in {folder}")
+                logger.info(f"Files to process: {file_count} in s3://{self.config.CHUNKED_BUCKET}/{folder}/")
+            except Exception as e:
+                logger.warning(f"Could not count files in folder {folder}: {str(e)}")
 
             response = self.bedrock_client.start_ingestion_job(
                 clientToken=client_token,
@@ -170,28 +251,24 @@ class KBIngestionService:
                 description=description
             )
             job_id = response['ingestionJob']['ingestionJobId']
-            logger.info(f"[KB-SYNC] ✅ Started ingestion job: {job_id}")
-            logger.info(f"[KB-SYNC] 📋 Job Description: {description}")
-            logger.info(f"[KB-SYNC] ⏱️  Monitoring job status...")
+            logger.info(f"Starting ingestion job for {folder}")
+            logger.info(f"Job ID: {job_id}")
 
-            # Wait for job to complete with enhanced logging
+            # Monitor job completion
             wait_result = self.wait_for_ingestion_job(kb_info, job_id)
             
             # Log final status
             if wait_result.get('status') == 'COMPLETE':
-                logger.info(f"[KB-SYNC] ✅ Knowledge Base sync COMPLETED successfully!")
-                logger.info(f"[KB-SYNC] 📊 Job ID: {job_id}")
-                logger.info(f"[KB-SYNC] 🗂️  Folder: {folder}")
-                logger.info(f"[KB-SYNC] 🔗 KB ID: {kb_info['id']}")
+                logger.info(f"Knowledge Base sync completed successfully for {folder}")
             else:
-                logger.warning(f"[KB-SYNC] ⚠️  Knowledge Base sync completed with status: {wait_result.get('status')}")
+                logger.warning(f"Knowledge Base sync completed with status: {wait_result.get('status')}")
                 if wait_result.get('failed_files'):
-                    logger.warning(f"[KB-SYNC] 📄 Failed files: {len(wait_result.get('failed_files', []))}")
+                    logger.warning(f"Failed files: {len(wait_result.get('failed_files', []))}")
             
             return wait_result
 
         except Exception as e:
-            logger.error(f"[KB-SYNC] ❌ Error during sync job for folder {folder}: {str(e)}")
+            logger.error(f"Sync job error for folder {folder}: {str(e)}")
             raise
 
     def wait_for_ingestion_job(self, kb_info: Dict[str, str], job_id: str) -> Dict[str, Any]:
@@ -203,8 +280,8 @@ class KBIngestionService:
         interval = 30
         failed_files_due_to_tokens = []
 
-        logger.info(f"KB_SYNC: Monitoring ingestion job {job_id}")
-        logger.info(f"KB_SYNC: Maximum wait time: {max_attempts * interval / 60:.1f} minutes")
+        logger.info(f"Monitoring ingestion job {job_id}")
+        logger.info(f"Maximum wait time: {max_attempts * interval / 60:.1f} minutes")
 
         start_time = time.time()
         last_status = None
@@ -221,24 +298,24 @@ class KBIngestionService:
                 
                 # Log status changes
                 if status != last_status:
-                    logger.info(f"KB_SYNC: Job status changed to '{status}'")
+                    logger.info(f"Job status changed to: {status}")
                     last_status = status
                 
                 # Progress update every 5 minutes
                 if attempt % 10 == 0 and attempt > 0:
                     elapsed = time.time() - start_time
-                    logger.info(f"KB_SYNC: Still processing... ({elapsed:.0f}s elapsed)")
+                    logger.info(f"Still processing, elapsed time: {elapsed:.0f}s")
 
                 if status == 'COMPLETE':
                     elapsed = time.time() - start_time
-                    logger.info(f"KB_SYNC: Job completed successfully in {elapsed:.0f}s")
+                    logger.info(f"Job completed successfully in {elapsed:.0f}s")
                     
                     # Log final statistics
                     stats = response['ingestionJob'].get('statistics', {})
                     processed = stats.get('documentsProcessed', 0)
                     failed = stats.get('documentsFailed', 0)
                     if processed or failed:
-                        logger.info(f"KB_SYNC: Final stats - Processed: {processed}, Failed: {failed}")
+                        logger.info(f"Final stats - Processed: {processed}, Failed: {failed}")
                     
                     return {'status': 'COMPLETE', 'failed_files': failed_files_due_to_tokens, 'duration': elapsed}
 
