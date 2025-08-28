@@ -19,6 +19,10 @@ from services.s3_service import S3Service
 from services.conversion_service import ConversionService
 from prometheus_client import Counter, Histogram, Gauge
 from config import AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, SOURCE_BUCKET, CHUNKED_BUCKET
+from monitoring.metrics import (
+    files_in_conversion, files_in_ocr, files_in_chunking, files_in_kb_sync,
+    pipeline_stage_files, sqs_messages_in_flight
+)
 
 # Document Pipeline Metrics - EXACT MATCHES FOR DASHBOARD
 s3_uploads_total = Counter('document_s3_uploads_total', 'Total files uploaded to S3', ['bucket', 'status'])
@@ -61,6 +65,8 @@ class Orchestrator:
     def process_single_file(self, file_key: str) -> bool:
         """Process a single PDF file through the complete pipeline."""
         active_processing_jobs.inc()
+        sqs_messages_in_flight.inc()
+        pipeline_stage_files.labels(stage='processing').inc()
         start_time = time.time()
         folder_name = file_key.split('/')[0] if '/' in file_key else 'default'
         
@@ -86,9 +92,13 @@ class Orchestrator:
             
             # Format conversion if needed
             if self.conversion_service.is_convertible_format(file_key):
+                files_in_conversion.inc()
+                pipeline_stage_files.labels(stage='conversion').inc()
                 convert_start = time.time()
                 pdf_content, converted_filename = self.conversion_service.convert_to_pdf(file_bytes, file_key)
                 processing_duration_seconds.labels(stage='conversion').observe(time.time() - convert_start)
+                files_in_conversion.dec()
+                pipeline_stage_files.labels(stage='conversion').dec()
                 
                 if pdf_content is None:
                     processing_errors_total.labels(stage='conversion', error_type='conversion_failed').inc()
@@ -110,9 +120,13 @@ class Orchestrator:
                 self.logger.info("Watermark processing completed")
 
             # OCR processing
+            files_in_ocr.inc()
+            pipeline_stage_files.labels(stage='ocr').inc()
             ocr_start = time.time()
             ocr_result = self.ocr_service.apply_ocr_to_pdf(pdf_stream, file_key)
             processing_duration_seconds.labels(stage='ocr').observe(time.time() - ocr_start)
+            files_in_ocr.dec()
+            pipeline_stage_files.labels(stage='ocr').dec()
             
             if ocr_result[0]:
                 pdf_stream = ocr_result[0]
@@ -122,10 +136,14 @@ class Orchestrator:
                 ocr_processing_total.labels(status='skipped').inc()
 
             # Chunking
+            files_in_chunking.inc()
+            pipeline_stage_files.labels(stage='chunking').inc()
             chunk_start = time.time()
             chunks = self.chunking_service.chunk_pdf(pdf_stream, file_key)
             processing_duration_seconds.labels(stage='chunking').observe(time.time() - chunk_start)
             chunks_created_total.inc(len(chunks))
+            files_in_chunking.dec()
+            pipeline_stage_files.labels(stage='chunking').dec()
             
             if not chunks:
                 processing_errors_total.labels(stage='chunking', error_type='chunking_failed').inc()
@@ -163,9 +181,13 @@ class Orchestrator:
                 )
                 
                 if folder_name in kb_service.get_kb_mapping():
+                    files_in_kb_sync.inc()
+                    pipeline_stage_files.labels(stage='kb_sync').inc()
                     kb_start = time.time()
                     kb_result = kb_service.sync_to_knowledge_base_simple(folder_name)
                     kb_duration = time.time() - kb_start
+                    files_in_kb_sync.dec()
+                    pipeline_stage_files.labels(stage='kb_sync').dec()
                     
                     if kb_result.get('status') == 'COMPLETE':
                         kb_sync_operations_total.labels(status='success').inc()
@@ -199,3 +221,6 @@ class Orchestrator:
                 return False
         finally:
             active_processing_jobs.dec()
+            sqs_messages_in_flight.dec()
+            pipeline_stage_files.labels(stage='processing').dec()
+            pipeline_stage_files.labels(stage='completed').inc()

@@ -13,6 +13,7 @@ import boto3
 from botocore.exceptions import ClientError
 from urllib.parse import unquote_plus
 from services.orchestrator import Orchestrator
+from services.sqs_monitor import SQSMonitor
 from monitoring.metrics import start_metrics_server, queue_depth, messages_processed
 
 # Configure logging
@@ -32,6 +33,7 @@ class SQSWorker:
         self.max_retries = 2  # Maximum number of retry attempts
         self.retry_delay = 30  # 30 seconds delay between retries
         self.orchestrator = Orchestrator()
+        self.sqs_monitor = SQSMonitor(self.queue_url, os.getenv('AWS_REGION', 'us-east-1'))
         
         if not self.queue_url:
             raise ValueError("SQS_QUEUE_URL environment variable not set")
@@ -167,6 +169,9 @@ class SQSWorker:
         """Main worker loop with batch processing"""
         logger.info("Starting SQS Worker...")
         start_metrics_server(port=8000)
+        
+        # Start SQS monitoring
+        self.sqs_monitor.start_monitoring()
         
         while True:
             try:

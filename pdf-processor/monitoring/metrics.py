@@ -15,9 +15,19 @@ kb_sync_total = Counter('kb_sync_total', 'Total KB sync attempts', ['folder', 's
 kb_sync_duration = Histogram('kb_sync_duration_seconds', 'KB sync duration', ['folder'])
 kb_mapping_found = Gauge('kb_mapping_found', 'KB mapping found for folder', ['folder'])
 
-# Queue metrics
-queue_depth = Gauge('sqs_queue_depth', 'Current SQS queue depth')
+# Real-time SQS Queue metrics
+sqs_messages_available = Gauge('sqs_messages_available', 'Messages currently in SQS queue')
+sqs_messages_in_flight = Gauge('sqs_messages_in_flight', 'Messages being processed by EC2')
 messages_processed = Counter('sqs_messages_processed_total', 'Total SQS messages processed')
+
+# Real-time Processing Stage metrics
+files_in_conversion = Gauge('files_in_conversion', 'Files currently being converted')
+files_in_ocr = Gauge('files_in_ocr', 'Files currently in OCR processing')
+files_in_chunking = Gauge('files_in_chunking', 'Files currently being chunked')
+files_in_kb_sync = Gauge('files_in_kb_sync', 'Files currently syncing to KB')
+
+# Pipeline overview
+pipeline_stage_files = Gauge('pipeline_stage_files', 'Files in each pipeline stage', ['stage'])
 
 # System metrics
 active_processing_jobs = Gauge('active_processing_jobs', 'Number of active processing jobs')
