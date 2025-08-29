@@ -117,10 +117,19 @@ class FilenameService:
             modified = True
         
         # Step 9: Add extension back (ensure no duplication)
-        if not cleaned_filename.endswith(ext.lstrip('.')):
-            final_filename = f"{cleaned_filename}{ext}"
+        # Handle extension properly - don't add .pdf when it's already there
+        if ext.lower() == '.pdf':
+            # Check if cleaned filename already ends with .pdf (case insensitive)
+            if not cleaned_filename.lower().endswith('.pdf'):
+                final_filename = f"{cleaned_filename}{ext}"
+            else:
+                final_filename = cleaned_filename
         else:
-            final_filename = cleaned_filename
+            # For other extensions, ensure we don't duplicate
+            if not cleaned_filename.lower().endswith(ext.lower()):
+                final_filename = f"{cleaned_filename}{ext}"
+            else:
+                final_filename = cleaned_filename
         
         # Reconstruct the full path
         cleaned_key = f"{dirname}/{final_filename}".replace("//", "/") if dirname else final_filename

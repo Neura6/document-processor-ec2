@@ -211,13 +211,16 @@ class Orchestrator:
                     processing_duration_seconds.labels(stage='s3_upload').observe(time.time() - upload_start)
                     self.logger.info(f"Uploaded chunk: {chunk_key}")
                     
-                    # Create metadata file for the uploaded chunk
+                    # Create metadata file
                     try:
-                        success = self.chunking_service.metadata_service.create_metadata_for_file(
-                            chunk_key,
-                            self.CHUNKED_BUCKET
+                        from services.metadata_service import MetadataService
+                        metadata_service = MetadataService()
+                        metadata_service.create_metadata_file(
+                            bucket=self.CHUNKED_BUCKET,
+                            key=chunk_key,
+                            metadata_dict=metadata
                         )
-                        self.logger.info(f"Created metadata file for: {chunk_key}")
+                        self.logger.info(f"Created metadata file for {chunk_key}")
                     except Exception as e:
                         self.logger.error(f"Failed to create metadata file for {chunk_key}: {e}")
                         processing_errors_total.labels(stage='metadata_creation', error_type='metadata_failed').inc()
