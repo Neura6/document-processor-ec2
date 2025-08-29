@@ -161,15 +161,21 @@ class Orchestrator:
             # Clean filename while preserving folder structure
             folder_path = '/'.join(file_key.split('/')[:-1]) if '/' in file_key else ''
             original_filename = file_key.split('/')[-1]
+            
+            # Extract extension properly
+            filename_only, ext = os.path.splitext(original_filename)
+            if not ext:
+                ext = '.pdf'  # Default to PDF if no extension
+            
             cleaned_filename_only = self.filename_service.clean_filename(original_filename)
             
             if folder_path:
-                cleaned_filename = f"{folder_path}/{cleaned_filename_only}"
+                cleaned_key = f"{folder_path}/{cleaned_filename_only}"
             else:
-                cleaned_filename = cleaned_filename_only
+                cleaned_key = cleaned_filename_only
                 
             self.logger.info(f"Original: {original_filename} -> Cleaned: {cleaned_filename_only}")
-            self.logger.info(f"Full cleaned path: {cleaned_filename}")
+            self.logger.info(f"Full cleaned path: {cleaned_key}")
 
             # Chunking
             files_in_chunking.inc()
