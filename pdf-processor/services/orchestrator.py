@@ -78,22 +78,25 @@ class Orchestrator:
             self.logger.info(f"Starting processing for: {file_key}")
             self.logger.info(f"Decoded filename: {decoded_file_key}")
             
-            # Check if file exists first
-            if not self.s3_service.object_exists(self.SOURCE_BUCKET, decoded_file_key):
-                self.logger.info(f"File not found, skipping: {decoded_file_key}")
+            # Debug S3 lookup
+            self.logger.info(f"DEBUG: Looking for file in bucket: {self.SOURCE_BUCKET}")
+            self.logger.info(f"DEBUG: File key: '{decoded_file_key}'")
+            
+            # Try direct S3 download instead of object_exists check
+            try:
+                download_start = time.time()
+                file_bytes = self.s3_service.get_object(self.SOURCE_BUCKET, decoded_file_key)
+                if file_bytes is None:
+                    self.logger.info(f"Could not retrieve file, skipping: {decoded_file_key}")
+                    return False
+                processing_duration_seconds.labels(stage='s3_download').observe(time.time() - download_start)
+                
+            except Exception as e:
+                self.logger.info(f"File not found or error accessing: {decoded_file_key} - {e}")
                 return False
             
             # Use decoded key for processing
             file_key = decoded_file_key
-            
-            # Track S3 download
-            download_start = time.time()
-            file_bytes = self.s3_service.get_object(self.SOURCE_BUCKET, file_key)
-            if file_bytes is None:
-                self.logger.info(f"Could not retrieve file, skipping: {file_key}")
-                return False
-                
-            processing_duration_seconds.labels(stage='s3_download').observe(time.time() - download_start)
             
             extension = os.path.splitext(file_key)[1].lower()
             pdf_stream = io.BytesIO(file_bytes)
