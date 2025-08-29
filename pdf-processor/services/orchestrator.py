@@ -201,9 +201,9 @@ class Orchestrator:
                 
                 page_num = metadata.get('page_number', 1)
                 # Use cleaned filename for chunk key, preserving folder structure
-                folder_path = '/'.join(cleaned_filename.split('/')[:-1]) if '/' in cleaned_filename else ''
-                filename_only = cleaned_filename.split('/')[-1]
-                base_name = os.path.splitext(cleaned_filename_only)[0]
+                folder_path = '/'.join(cleaned_key.split('/')[:-1]) if '/' in cleaned_key else ''
+                filename_only = cleaned_key.split('/')[-1]
+                base_name = os.path.splitext(filename_only)[0]
                 
                 if folder_path:
                     chunk_key = f"{folder_path}/{base_name}_page_{page_num}.pdf"
