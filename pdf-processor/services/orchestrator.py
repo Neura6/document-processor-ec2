@@ -81,10 +81,7 @@ class Orchestrator:
             # Enhanced S3 file access with retry and better logging
             max_retries = 3
             retry_delay = 1  # seconds
-            
-            # Use original encoded key for S3 operations (preserve actual S3 key)
-            final_file_key = file_key
-            
+                    
             for attempt in range(max_retries):
                 try:
                     self.logger.info(f"Attempt {attempt + 1}/{max_retries} to download: {final_file_key}")
@@ -112,8 +109,7 @@ class Orchestrator:
                     time.sleep(retry_delay)
             
             # Use decoded key for processing
-            file_key = decoded_file_key
-            
+# Keep original file_key for S3 operations - no decoding needed            
             extension = os.path.splitext(file_key)[1].lower()
             pdf_stream = io.BytesIO(file_bytes)
             
