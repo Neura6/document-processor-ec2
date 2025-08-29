@@ -110,7 +110,7 @@ class Orchestrator:
             
             # Use decoded key for processing
 # Keep original file_key for S3 operations - no decoding needed            
-            extension = os.path.splitext(file_key)[1].lower()
+            ext = os.path.splitext(file_key)[1].lower()
             pdf_stream = io.BytesIO(file_bytes)
             
             # Format conversion if needed
@@ -125,11 +125,11 @@ class Orchestrator:
                 
                 if pdf_content is None:
                     processing_errors_total.labels(stage='conversion', error_type='conversion_failed').inc()
-                    document_conversions_total.labels(from_format=extension, to_format='pdf', status='failed').inc()
+                    document_conversions_total.labels(from_format=ext, to_format='pdf', status='failed').inc()
                     files_processed_total.labels(status='failed').inc()
                     return False
                 
-                document_conversions_total.labels(from_format=extension, to_format='pdf', status='success').inc()
+                document_conversions_total.labels(from_format=ext, to_format='pdf', status='success').inc()
                 pdf_stream = io.BytesIO(pdf_content)
                 self.logger.info(f"Successfully converted {file_key} to PDF")
 
