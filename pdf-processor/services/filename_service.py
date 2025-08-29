@@ -46,6 +46,11 @@ class FilenameService:
         dirname, basename = current_key.rsplit('/', 1) if '/' in current_key else ('', current_key)
         filename_only = basename
         
+        # Extract extension from original filename
+        filename_without_ext, ext = os.path.splitext(filename_only)
+        if not ext:
+            ext = '.pdf'  # Default to PDF if no extension
+        
         # Step 1: Convert ALL non-English characters to English using unidecode FIRST
         try:
             cleaned_filename = unidecode.unidecode(filename_only)
