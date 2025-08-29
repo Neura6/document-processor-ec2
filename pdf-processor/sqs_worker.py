@@ -13,6 +13,7 @@ import boto3
 from botocore.exceptions import ClientError
 from urllib.parse import unquote_plus
 from services.orchestrator import Orchestrator
+from services.filename_service import FilenameService
 from services.sqs_monitor import SQSMonitor
 from monitoring.metrics import start_metrics_server, messages_processed
 
