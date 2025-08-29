@@ -5,8 +5,9 @@ TMI removal, and non-English character conversion.
 """
 
 import re
-import unidecode
+import os
 import logging
+import unidecode
 from typing import Tuple
 
 logger = logging.getLogger(__name__)
@@ -98,13 +99,13 @@ class FilenameService:
             filename_only = cleaned_filename
             modified = True
         
-        # Step 7: Remove ALL non-English characters (ULTRA-STRICT filtering)
-        # Only allow: a-z, A-Z, 0-9, _ (and / for folder paths)
-        cleaned_filename = re.sub(ULTRA_STRICT_REGEX, "", filename_only)
-        if cleaned_filename != filename_only:
-            self.logger.debug(f"Removed non-English chars: {filename_only} -> {cleaned_filename}")
-            filename_only = cleaned_filename
-            modified = True
+        # Step 7: Handle Arabic and non-Latin characters by transliteration
+        try:
+            # Use unidecode to transliterate non-Latin characters to ASCII
+            filename_only = unidecode(filename_only)
+        except Exception:
+            # Fallback: remove non-ASCII characters
+            filename_only = re.sub(r'[^\x00-\x7F]+', '_', filename_only)
         
         # Step 8: Normalize multiple underscores only
         cleaned_filename = re.sub(MULTIPLE_UNDERSCORES_REGEX, "_", filename_only)
