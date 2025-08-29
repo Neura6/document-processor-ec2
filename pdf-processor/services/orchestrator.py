@@ -9,7 +9,7 @@ import os
 import time
 import logging
 from typing import List, Dict, Any
-from urllib.parse import unquote_plus
+from urllib.parse import unquote
 import PyPDF2
 from services.filename_service import FilenameService
 from services.watermark_service import WatermarkService
@@ -72,8 +72,8 @@ class Orchestrator:
         
         try:
             # Handle URL encoding for Arabic characters
-            from urllib.parse import unquote_plus
-            decoded_file_key = unquote_plus(file_key)
+            from urllib.parse import unquote
+            decoded_file_key = unquote(file_key)
             
             self.logger.info(f"Starting processing for: {file_key}")
             self.logger.info(f"Decoded filename: {decoded_file_key}")
