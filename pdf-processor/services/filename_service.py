@@ -116,8 +116,16 @@ class FilenameService:
             filename_only = cleaned_filename
             modified = True
         
+        # Ensure we don't duplicate the extension
+        base_name = cleaned_filename
+        if cleaned_filename.lower().endswith('.pdf'):
+            base_name = cleaned_filename[:-4]
+        
+        # Ensure no spaces and proper extension
+        base_name = base_name.replace(' ', '_')
+        
         # Reconstruct the full path
-        cleaned_key = f"{dirname}/{filename_only}".replace("//", "/") if dirname else filename_only
+        cleaned_key = f"{dirname}/{base_name}.pdf".replace("//", "/") if dirname else f"{base_name}.pdf"
         
         return cleaned_key if modified else original_key
     
