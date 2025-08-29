@@ -82,8 +82,8 @@ class Orchestrator:
             max_retries = 3
             retry_delay = 1  # seconds
             
-            # Use decoded key consistently
-            final_file_key = decoded_file_key
+            # Use original encoded key for S3 operations (preserve actual S3 key)
+            final_file_key = file_key
             
             for attempt in range(max_retries):
                 try:
