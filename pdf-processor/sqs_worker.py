@@ -85,6 +85,7 @@ class SQSWorker:
                     display_path = object_key.replace('+', ' ')
                     
                     # Clean the filename before processing
+                    from services.filename_service import FilenameService
                     filename_service = FilenameService()
                     
                     folder_path = '/'.join(object_key.split('/')[:-1]) if '/' in object_key else ''
@@ -100,7 +101,7 @@ class SQSWorker:
                     logger.info(f"Cleaned filename: {original_filename} -> {cleaned_filename_only}")
                     
                     # Process the file
-                    result = self.orchestrator.process_single_file(bucket_name, object_key)
+                    result = self.orchestrator.process_single_file(object_key)
                     
                     if result:
                         logger.info(f"Successfully processed: {object_key}")
