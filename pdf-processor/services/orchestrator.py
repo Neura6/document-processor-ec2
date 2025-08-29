@@ -213,11 +213,9 @@ class Orchestrator:
                     
                     # Create metadata file for the uploaded chunk
                     try:
-                        folder_name = folder_path.split('/')[-1] if folder_path else 'default'
-                        self.chunking_service.metadata_service.create_metadata_file(
+                        success = self.chunking_service.metadata_service.create_metadata_for_file(
                             chunk_key,
-                            folder_name,
-                            filename_only
+                            self.CHUNKED_BUCKET
                         )
                         self.logger.info(f"Created metadata file for: {chunk_key}")
                     except Exception as e:
