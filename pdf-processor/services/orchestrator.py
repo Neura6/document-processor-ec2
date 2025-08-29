@@ -215,10 +215,9 @@ class Orchestrator:
                     try:
                         folder_name = folder_path.split('/')[-1] if folder_path else 'default'
                         self.chunking_service.metadata_service.create_metadata_file(
-                            bucket=self.CHUNKED_BUCKET,
-                            key=chunk_key,
-                            folder=folder_name,
-                            original_filename=filename_only
+                            chunk_key,
+                            folder_name,
+                            filename_only
                         )
                         self.logger.info(f"Created metadata file for: {chunk_key}")
                     except Exception as e:
