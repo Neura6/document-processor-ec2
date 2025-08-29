@@ -78,22 +78,35 @@ class Orchestrator:
             self.logger.info(f"Starting processing for: {file_key}")
             self.logger.info(f"Decoded filename: {decoded_file_key}")
             
-            # Debug S3 lookup
-            self.logger.info(f"DEBUG: Looking for file in bucket: {self.SOURCE_BUCKET}")
-            self.logger.info(f"DEBUG: File key: '{decoded_file_key}'")
+            # Enhanced S3 file access with retry and better logging
+            max_retries = 3
+            retry_delay = 1  # seconds
             
-            # Try direct S3 download instead of object_exists check
-            try:
-                download_start = time.time()
-                file_bytes = self.s3_service.get_object(self.SOURCE_BUCKET, decoded_file_key)
-                if file_bytes is None:
-                    self.logger.info(f"Could not retrieve file, skipping: {decoded_file_key}")
-                    return False
-                processing_duration_seconds.labels(stage='s3_download').observe(time.time() - download_start)
-                
-            except Exception as e:
-                self.logger.info(f"File not found or error accessing: {decoded_file_key} - {e}")
-                return False
+            for attempt in range(max_retries):
+                try:
+                    self.logger.info(f"Attempt {attempt + 1}/{max_retries} to download: {decoded_file_key}")
+                    download_start = time.time()
+                    file_bytes = self.s3_service.get_object(self.SOURCE_BUCKET, decoded_file_key)
+                    
+                    if file_bytes is not None:
+                        processing_duration_seconds.labels(stage='s3_download').observe(time.time() - download_start)
+                        self.logger.info(f"Successfully downloaded {len(file_bytes)} bytes from {decoded_file_key}")
+                        break
+                    
+                    # If we get here, file_bytes is None (file not found)
+                    if attempt == max_retries - 1:
+                        self.logger.error(f"File not found after {max_retries} attempts: {decoded_file_key}")
+                        return False
+                    
+                    self.logger.warning(f"File not found, retrying in {retry_delay} seconds...")
+                    time.sleep(retry_delay)
+                    
+                except Exception as e:
+                    if attempt == max_retries - 1:
+                        self.logger.error(f"Failed to download after {max_retries} attempts: {str(e)}")
+                        return False
+                    self.logger.warning(f"Attempt {attempt + 1} failed: {str(e)}, retrying...")
+                    time.sleep(retry_delay)
             
             # Use decoded key for processing
             file_key = decoded_file_key

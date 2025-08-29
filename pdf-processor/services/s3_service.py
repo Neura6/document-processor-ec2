@@ -68,21 +68,34 @@ class S3Service:
     
     def get_object(self, bucket: str, key: str) -> bytes:
         """
-        Get object from S3.
+        Get object from S3 with enhanced error handling and logging.
         
         Args:
             bucket: S3 bucket name
-            key: Object key
+            key: Object key (URL-decoded)
             
         Returns:
-            Object bytes
+            Object bytes if found, None otherwise
         """
         try:
-            response = self.s3.get_object(Bucket=bucket, Key=key)
-            return response['Body'].read()
-            
+            # First try with the exact key
+            try:
+                response = self.s3.get_object(Bucket=bucket, Key=key)
+                logger.debug(f"Successfully retrieved {key} from {bucket}")
+                return response['Body'].read()
+            except self.s3.exceptions.NoSuchKey:
+                logger.warning(f"File not found with key: {key}")
+                return None
+            except self.s3.exceptions.ClientError as e:
+                if e.response['Error']['Code'] == 'NoSuchKey':
+                    logger.warning(f"File not found (NoSuchKey): {key}")
+                    return None
+                # For other client errors, log and re-raise
+                logger.error(f"S3 ClientError for key {key}: {str(e)}")
+                raise
+                
         except Exception as e:
-            logger.error(f"Error getting object {key}: {e}")
+            logger.error(f"Unexpected error getting object {key}: {str(e)}")
             raise
     
     def put_object(self, bucket: str, key: str, body: bytes) -> bool:
