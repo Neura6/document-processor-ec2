@@ -84,9 +84,9 @@ class Orchestrator:
                     
             for attempt in range(max_retries):
                 try:
-                    self.logger.info(f"Attempt {attempt + 1}/{max_retries} to download: {final_file_key}")
+                    self.logger.info(f"Attempt {attempt + 1}/{max_retries} to download: {decoded_file_key}")
                     download_start = time.time()
-                    file_bytes = self.s3_service.get_object(self.SOURCE_BUCKET, final_file_key)
+                    file_bytes = self.s3_service.get_object(self.SOURCE_BUCKET, decoded_file_key)
                     
                     if file_bytes is not None:
                         processing_duration_seconds.labels(stage='s3_download').observe(time.time() - download_start)
