@@ -82,28 +82,31 @@ class SQSWorker:
                     
                     # Log with proper path formatting
                     display_path = object_key.replace('+', ' ')
-                    logger.info(f"Processing file: s3://{bucket_name}/{display_path}")
                     
-                    # Ensure we pass the properly decoded key to orchestrator
-                    object_key = object_key.replace('+', ' ')
+                    # Clean the filename before processing
+                    filename_service = FilenameService()
                     
-                    try:
-                        # Process the file through orchestrator
-                        success = self.orchestrator.process_single_file(object_key)
-                        if success:
-                            logger.info(f"Successfully processed: {object_key}")
-                            self._delete_message(message, object_key)
-                            
-                    except Exception as e:
-                        if 'NoSuchKey' in str(e):
-                            logger.warning(f"File not found, deleting message: {object_key}")
-                            self._delete_message(message, object_key)
-                        else:
-                            # For other errors, log and delete the message to prevent infinite retries
-                            logger.error(f"Error processing {object_key}: {e}")
-                            self._delete_message(message, object_key)
+                    folder_path = '/'.join(object_key.split('/')[:-1]) if '/' in object_key else ''
+                    original_filename = object_key.split('/')[-1]
+                    cleaned_filename_only = filename_service.clean_filename(original_filename)
                     
-                    messages_processed.inc()
+                    if folder_path:
+                        cleaned_object_key = f"{folder_path}/{cleaned_filename_only}"
+                    else:
+                        cleaned_object_key = cleaned_filename_only
+                    
+                    logger.info(f"Processing file: s3://{bucket_name}/{object_key}")
+                    logger.info(f"Cleaned filename: {original_filename} -> {cleaned_filename_only}")
+                    
+                    # Process the file
+                    result = self.orchestrator.process_single_file(bucket_name, object_key)
+                    
+                    if result:
+                        logger.info(f"Successfully processed: {object_key}")
+                        self._delete_message(message, object_key)
+                    else:
+                        logger.error(f"Failed to process: {object_key}")
+                        self._delete_message(message, object_key)
             
             except KeyError as e:
                 logger.error(f"Error processing message - missing key: {e}")
