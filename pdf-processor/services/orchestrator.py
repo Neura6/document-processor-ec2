@@ -233,13 +233,20 @@ class Orchestrator:
                     aws_secret_access_key=AWS_SECRET_ACCESS_KEY
                 )
                 
-                if folder_name in kb_service.get_kb_mapping():
+                kb_mapping = kb_service.get_kb_mapping()
+                self.logger.info(f"KB sync check: folder_name={folder_name}, available_mappings={list(kb_mapping.keys())}")
+                
+                if folder_name in kb_mapping:
+                    self.logger.info(f"Starting KB sync for folder: {folder_name}")
                     files_in_kb_sync.inc()
                     pipeline_stage_files.labels(stage='kb_sync').inc()
                     kb_start = time.time()
                     kb_result = kb_service.sync_to_knowledge_base_simple(folder_name)
                     kb_duration = time.time() - kb_start
                     files_in_kb_sync.dec()
+                    self.logger.info(f"KB sync completed for {folder_name}: {kb_result}, duration={kb_duration:.2f}s")
+                else:
+                    self.logger.info(f"No KB mapping found for folder: {folder_name}")
                     pipeline_stage_files.labels(stage='kb_sync').dec()
                     
                     if kb_result.get('status') == 'COMPLETE':
