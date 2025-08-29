@@ -71,12 +71,20 @@ class Orchestrator:
         folder_name = file_key.split('/')[0] if '/' in file_key else 'default'
         
         try:
+            # Handle URL encoding for Arabic characters
+            from urllib.parse import unquote_plus
+            decoded_file_key = unquote_plus(file_key)
+            
             self.logger.info(f"Starting processing for: {file_key}")
+            self.logger.info(f"Decoded filename: {decoded_file_key}")
             
             # Check if file exists first
-            if not self.s3_service.object_exists(self.SOURCE_BUCKET, file_key):
-                self.logger.info(f"File not found, skipping: {file_key}")
+            if not self.s3_service.object_exists(self.SOURCE_BUCKET, decoded_file_key):
+                self.logger.info(f"File not found, skipping: {decoded_file_key}")
                 return False
+            
+            # Use decoded key for processing
+            file_key = decoded_file_key
             
             # Track S3 download
             download_start = time.time()
