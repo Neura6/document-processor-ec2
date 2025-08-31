@@ -61,67 +61,25 @@ class FilenameService:
         except Exception as e:
             self.logger.error(f"Error during unidecode conversion: {e}")
         
-        # Step 2: Remove bracket content including brackets [content]
-        cleaned_filename = re.sub(BRACKET_CONTENT_REGEX, "", filename_only)
+        # Step 2: Remove ALL special characters except alphanumeric and underscore
+        cleaned_filename = re.sub(ULTRA_STRICT_REGEX, '', filename_only)
         if cleaned_filename != filename_only:
-            self.logger.debug(f"Removed brackets: {filename_only} -> {cleaned_filename}")
-            filename_only = cleaned_filename
             modified = True
         
-        # Step 3: Remove parenthesis content including parentheses (content)
-        cleaned_filename = re.sub(PAREN_CONTENT_REGEX, "", filename_only)
-        if cleaned_filename != filename_only:
-            self.logger.debug(f"Removed parentheses: {filename_only} -> {cleaned_filename}")
-            filename_only = cleaned_filename
-            modified = True
+        # Step 3: Replace multiple underscores with single underscore
+        cleaned_filename = re.sub(MULTIPLE_UNDERSCORES_REGEX, '_', cleaned_filename)
         
-        # Step 4: Remove TMI and related terms (case-insensitive)
-        tmi_patterns = [
-            r"TMI\s*",
-            r"\d+\s*TMI\s*",
-            r"\(\d+\)\s*TMI\s*",
-            r"\[\d+\]\s*TMI\s*"
-        ]
+        # Step 4: Replace whitespace with underscores
+        cleaned_filename = re.sub(WHITESPACE_REGEX, '_', cleaned_filename)
         
-        for pattern in tmi_patterns:
-            cleaned_filename = re.sub(pattern, "", filename_only, flags=re.IGNORECASE)
-            if cleaned_filename != filename_only:
-                self.logger.debug(f"Removed TMI pattern: {filename_only} -> {cleaned_filename}")
-                filename_only = cleaned_filename
-                modified = True
+        # Step 5: Remove leading/trailing underscores and dots
+        cleaned_filename = cleaned_filename.strip('_.')
         
-        # Step 5: Remove quote characters
-        cleaned_filename = re.sub(QUOTE_CHARS_REGEX, "", filename_only)
-        if cleaned_filename != filename_only:
-            self.logger.debug(f"Removed quotes: {filename_only} -> {cleaned_filename}")
-            filename_only = cleaned_filename
-            modified = True
+        # Ensure we have at least some valid characters
+        if not cleaned_filename:
+            cleaned_filename = 'unnamed_file'
         
-        # Step 6: Replace ALL spaces with underscores
-        cleaned_filename = re.sub(WHITESPACE_REGEX, "_", filename_only)
-        if cleaned_filename != filename_only:
-            self.logger.debug(f"Replaced spaces with underscores: {filename_only} -> {cleaned_filename}")
-            filename_only = cleaned_filename
-            modified = True
-        
-        # Step 7: Handle Arabic and non-Latin characters by transliteration
-        try:
-            # Use unidecode to transliterate non-Latin characters to ASCII
-            filename_only = unidecode(filename_only)
-        except Exception:
-            # Fallback: remove non-ASCII characters
-            filename_only = re.sub(r'[^\x00-\x7F]+', '_', filename_only)
-        
-        # Step 8: Normalize multiple underscores only
-        cleaned_filename = re.sub(MULTIPLE_UNDERSCORES_REGEX, "_", filename_only)
-        cleaned_filename = cleaned_filename.strip("_")
-        
-        if cleaned_filename != filename_only:
-            self.logger.debug(f"Normalized underscores/dashes: {filename_only} -> {cleaned_filename}")
-            filename_only = cleaned_filename
-            modified = True
-        
-        # Step 9: Add extension back (ensure no duplication)
+        # Step 6: Add extension back (ensure no duplication)
         # Handle extension properly - don't add .pdf when it's already there
         if ext.lower() == '.pdf':
             # Check if cleaned filename already ends with .pdf (case insensitive)
