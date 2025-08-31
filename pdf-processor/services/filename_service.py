@@ -51,16 +51,7 @@ class FilenameService:
         if not ext:
             ext = '.pdf'  # Default to PDF if no extension
         
-        # Step 1: Convert ALL non-English characters to English using unidecode FIRST
-        try:
-            cleaned_filename = unidecode.unidecode(filename_only)
-            if cleaned_filename != filename_only:
-                self.logger.debug(f"Converted non-English: {filename_only} -> {cleaned_filename}")
-                filename_only = cleaned_filename
-                modified = True
-        except Exception as e:
-            self.logger.error(f"Error during unidecode conversion: {e}")
-        
+        # Step 1: Remove ALL non-English characters completely - skip unidecode
         # Step 2: Remove ALL special characters except alphanumeric and underscore
         cleaned_filename = re.sub(ULTRA_STRICT_REGEX, '', filename_only)
         if cleaned_filename != filename_only:
