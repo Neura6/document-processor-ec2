@@ -4,6 +4,7 @@ Handles PDF chunking into individual pages with metadata.
 """
 
 import PyPDF2
+import os
 from io import BytesIO
 import logging
 from typing import List, Dict, Any, Tuple
