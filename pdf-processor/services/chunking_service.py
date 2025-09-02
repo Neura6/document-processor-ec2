@@ -46,7 +46,7 @@ class ChunkingService:
                 if len(parts) > 3:
                     metadata['document_type'] = parts[2]
                 if len(parts) > 1:
-                    metadata['document_name'] = parts[-1].rsplit('.', 1)[0]
+                    metadata['document_name'] = os.path.splitext(parts[-1])[0]
         elif folder == 'accounting-global':
             if len(parts) > 1:
                 metadata['complexity'] = parts[1]
@@ -55,42 +55,51 @@ class ChunkingService:
                 if len(parts) > 3:
                     metadata['document_type'] = parts[3]
                 if len(parts) > 1:
-                    metadata['document_name'] = parts[-1].rsplit('.', 1)[0]
+                    metadata['document_name'] = os.path.splitext(parts[-1])[0]
         elif folder in ['accounting-standards','commercial-laws','Banking Regulations','Direct Taxes','Capital Market Regulations','Auditing Standards','Insurance','Labour Law']:
             if len(parts) > 1:
                 metadata['country'] = parts[1]
-                if len(parts) > 3:
+                if len(parts) > 2:
                     metadata['document_type'] = parts[2]
-                if len(parts) > 4:
+                if len(parts) > 3:
                     metadata['document_category'] = parts[3]
-                if len(parts) > 5:
+                if len(parts) > 4:
                     metadata['document_sub-category'] = parts[4]
                 if len(parts) > 1:
-                    metadata['document_name'] = parts[-1].rsplit('.', 1)[0]
+                    metadata['document_name'] = os.path.splitext(parts[-1])[0]
         elif folder == 'Indirect Taxes':
             if len(parts) > 1:
                 metadata['country'] = parts[1]
-                if len(parts) > 3:
+                if len(parts) > 2:
                     metadata['document_type'] = parts[2]
-                if len(parts) > 4:
+                if len(parts) > 3:
                     metadata['State'] = parts[3]
-                if len(parts) > 5:
+                if len(parts) > 4:
                     metadata['State_category'] = parts[4]
                 if len(parts) > 1:
-                    metadata['document_name'] = parts[-1].rsplit('.', 1)[0]
+                    metadata['document_name'] = os.path.splitext(parts[-1])[0]
         elif folder == 'usecase-reports-4':
             if len(parts) > 1:
                 metadata['country'] = parts[1]
                 if len(parts) > 2:
                     metadata['year'] = parts[2]
                 if len(parts) > 1:
-                    metadata['document_name'] = parts[-1].rsplit('.', 1)[0]
+                    metadata['document_name'] = os.path.splitext(parts[-1])[0]
+        else:
+            # Handle generic case - extract country from second part if available
+            if len(parts) > 1:
+                metadata['country'] = parts[1]
+            if len(parts) > 1:
+                metadata['document_name'] = os.path.splitext(parts[-1])[0]
 
+        # Build the correct S3 URI path structure
+        original_filename = os.path.splitext(parts[-1])[0]
+        folder_path = '/'.join(parts[:-1])  # All parts except filename
+        
         # Add page-specific metadata
         metadata['page_number'] = page_number
         metadata['total_pages'] = total_pages
-        metadata['chunk_s3_uri'] = f"s3://{CHUNKED_BUCKET}/{key.rsplit('.', 1)[0]}_page_{page_number}.pdf"
-        metadata['processed_file_path'] = key
+        metadata['chunk_s3_uri'] = f"s3://{CHUNKED_BUCKET}/{folder_path}/{original_filename}_page_{page_number}.pdf"
 
         return metadata
     
