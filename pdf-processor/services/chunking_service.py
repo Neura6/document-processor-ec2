@@ -112,10 +112,17 @@ class ChunkingService:
         else:
             metadata['chunk_s3_uri'] = f"s3://{CHUNKED_BUCKET}/{original_filename}_page_{page_number}.pdf"
             
-        # Debug logging for URI verification
-        self.logger.info(f"DEBUG: Processing key: {key}")
-        self.logger.info(f"DEBUG: full_path extracted: {full_path}")
-        self.logger.info(f"DEBUG: Generated chunk_s3_uri: {metadata['chunk_s3_uri']}")
+        # CRITICAL DEBUG LOGGING - will show in logs
+        self.logger.info(f"=== METADATA EXTRACTION DEBUG ===")
+        self.logger.info(f"INPUT KEY: {key}")
+        self.logger.info(f"PARTS: {parts}")
+        self.logger.info(f"FOLDER: {folder}")
+        self.logger.info(f"COUNTRY: {metadata.get('country', 'NOT FOUND')}")
+        self.logger.info(f"DOCUMENT_NAME: {metadata.get('document_name', 'NOT FOUND')}")
+        self.logger.info(f"FULL_PATH: {full_path}")
+        self.logger.info(f"FINAL S3 URI: {metadata['chunk_s3_uri']}")
+        self.logger.info(f"COMPLETE METADATA: {metadata}")
+        self.logger.info(f"=== END DEBUG ===")
 
         return metadata
     
