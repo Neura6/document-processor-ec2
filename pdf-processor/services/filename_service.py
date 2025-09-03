@@ -17,8 +17,8 @@ REMOVE_TERM_REGEX = r"TMI\s*"
 BRACKET_CONTENT_REGEX = r"\[.*?\]\s*"
 PAREN_CONTENT_REGEX = r"\(.*?\)\s*"
 QUOTE_CHARS_REGEX = r"[''""'\"]+"
-# ULTRA-STRICT: ONLY a-z, A-Z, 0-9, _ (and / for folder paths)
-ULTRA_STRICT_REGEX = r"[^a-zA-Z0-9_/]"
+# Allow spaces to be handled separately - don't remove them
+ULTRA_STRICT_REGEX = r"[^a-zA-Z0-9_/ ]"
 MULTIPLE_UNDERSCORES_REGEX = r"_{2,}"
 WHITESPACE_REGEX = r"\s+"
 
@@ -52,16 +52,16 @@ class FilenameService:
             ext = '.pdf'  # Default to PDF if no extension
         
         # Step 1: Remove ALL non-English characters completely - skip unidecode
-        # Step 2: Remove ALL special characters except alphanumeric and underscore
+        # Step 2: Remove special characters but keep spaces
         cleaned_filename = re.sub(ULTRA_STRICT_REGEX, '', filename_only)
         if cleaned_filename != filename_only:
             modified = True
         
-        # Step 3: Replace multiple underscores with single underscore
-        cleaned_filename = re.sub(MULTIPLE_UNDERSCORES_REGEX, '_', cleaned_filename)
-        
-        # Step 4: Replace whitespace with underscores
+        # Step 3: Replace spaces with underscores
         cleaned_filename = re.sub(WHITESPACE_REGEX, '_', cleaned_filename)
+        
+        # Step 4: Replace multiple underscores with single underscore
+        cleaned_filename = re.sub(MULTIPLE_UNDERSCORES_REGEX, '_', cleaned_filename)
         
         # Step 5: Remove leading/trailing underscores and dots
         cleaned_filename = cleaned_filename.strip('_.')
