@@ -137,11 +137,11 @@ class ChunkingService:
                 # Get enhanced metadata for this specific page
                 metadata = self.extract_metadata(s3_key, page_num + 1, total_pages)
                 
-                # Create metadata page
+                # Create and prepend metadata page (Lambda style - metadata first)
                 metadata_page = self._create_metadata_page(metadata)
                 writer.add_page(metadata_page)
                 
-                # Add the actual content page
+                # Add the actual content page (original or processed)
                 writer.add_page(reader.pages[page_num])
                 
                 chunks.append((writer, metadata))
@@ -175,22 +175,20 @@ class ChunkingService:
                 # Handle None values by converting to string "None" or skipping
                 value_str = str(value) if value is not None else "None"
                 c.drawString(100, y, f"{key}: {value_str}")
-                y -= 12  # Move down for the next line (reduced spacing like Lambda)
+                y -= 12  # Move down for the next line (reduced spacing)
 
             c.showPage()
             c.save()
             packet.seek(0)
             # Return the BytesIO object containing the PDF metadata page content
-            reader = PyPDF2.PdfReader(packet)
-            return reader.pages[0]
+            return PyPDF2.PdfReader(packet).pages[0]
             
         except Exception as e:
             self.logger.error(f"Error creating metadata page: {e}")
             # Return empty page if metadata creation fails
             packet = BytesIO()
             c = canvas.Canvas(packet, pagesize=letter)
-            c.drawString(50, 400, "Metadata unavailable")
+            c.showPage()
             c.save()
             packet.seek(0)
-            reader = PyPDF2.PdfReader(packet)
-            return reader.pages[0]
+            return PyPDF2.PdfReader(packet).pages[0]
