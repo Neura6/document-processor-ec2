@@ -25,25 +25,25 @@ class ChunkingService:
     
     def extract_metadata(self, key: str, page_number: int = 1, total_pages: int = 1) -> Dict[str, Any]:
         """
-        Extract metadata from S3 key exactly as done in Lambda's extract_metadata_from_source_key
+        Extract metadata from S3 key path - exactly matching Lambda's extract_metadata_from_source_key
         
         Args:
-            key: S3 object key
-            page_number: Current page number (1-indexed)
-            total_pages: Total pages in the PDF
+            key: S3 key path
+            page_number: Current page number
+            total_pages: Total pages in document
             
         Returns:
-            Dictionary with metadata matching Lambda format
+            Dictionary with extracted metadata
         """
         parts = key.split('/')
         folder = parts[0]
         metadata = {'standard_type': folder}
 
-        # Ensure enough parts exist before accessing indices - exact Lambda logic
+        # Ensure enough parts exist before accessing indices - matching Lambda logic
         if folder in ['Auditing-global', 'Finance Tools', 'GIFT City']:
             if len(parts) > 1:
                 if len(parts) > 2:
-                    metadata['Standard_type'] = parts[1]
+                    metadata['Standard_type'] = parts[1]  # Note: inconsistent key capitalization
                 if len(parts) > 3:
                     metadata['document_type'] = parts[2]
                 metadata['document_name'] = os.path.splitext(parts[-1])[0]
@@ -55,24 +55,35 @@ class ChunkingService:
                 if len(parts) > 3:
                     metadata['document_type'] = parts[3]
                 metadata['document_name'] = os.path.splitext(parts[-1])[0]
+        elif folder == 'Banking Regulations-test' and len(parts) > 1 and parts[1] == 'Bahrain':
+            if len(parts) > 2:
+                metadata['country'] = parts[1]
+                metadata['complexity'] = parts[2]
+                if len(parts) > 4:
+                    metadata['document_type'] = parts[3]
+                if len(parts) > 5:
+                    metadata['document_category'] = parts[4]
+                if len(parts) > 6:
+                    metadata['document_sub-category'] = parts[5]
+                metadata['document_name'] = os.path.splitext(parts[-1])[0]
         elif folder in ['accounting-standards','commercial-laws','Banking Regulations','Direct Taxes','Capital Market Regulations','Auditing Standards','Insurance','Labour Law']:
             if len(parts) > 1:
                 metadata['country'] = parts[1]
-                if len(parts) > 2:
-                    metadata['document_type'] = parts[2]
                 if len(parts) > 3:
-                    metadata['document_category'] = parts[3]
+                    metadata['document_type'] = parts[2]
                 if len(parts) > 4:
+                    metadata['document_category'] = parts[3]
+                if len(parts) > 5:
                     metadata['document_sub-category'] = parts[4]
                 metadata['document_name'] = os.path.splitext(parts[-1])[0]
         elif folder == 'Indirect Taxes':
             if len(parts) > 1:
                 metadata['country'] = parts[1]
-                if len(parts) > 2:
-                    metadata['document_type'] = parts[2]
                 if len(parts) > 3:
-                    metadata['State'] = parts[3]
+                    metadata['document_type'] = parts[2]
                 if len(parts) > 4:
+                    metadata['State'] = parts[3]
+                if len(parts) > 5:
                     metadata['State_category'] = parts[4]
                 metadata['document_name'] = os.path.splitext(parts[-1])[0]
         elif folder == 'usecase-reports-4':
