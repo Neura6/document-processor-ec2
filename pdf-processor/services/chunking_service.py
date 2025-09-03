@@ -87,14 +87,19 @@ class ChunkingService:
                 metadata['country'] = parts[1]
             metadata['document_name'] = os.path.splitext(parts[-1])[0]
 
-        # Build the correct S3 URI path structure - use original key structure
+        # Build the correct S3 URI path structure - preserve exact folder structure
         original_filename = os.path.splitext(parts[-1])[0]
-        base_key_path = os.path.dirname(key)  # This preserves the full folder structure
+        full_path = key.rsplit('/', 1)[0] if '/' in key else ''
         
         # Add page-specific metadata
         metadata['page_number'] = page_number
         metadata['total_pages'] = total_pages
-        metadata['chunk_s3_uri'] = f"s3://{CHUNKED_BUCKET}/{base_key_path}/{original_filename}_page_{page_number}.pdf"
+        
+        # Ensure proper path construction for chunk_s3_uri with exact folder structure
+        if full_path:
+            metadata['chunk_s3_uri'] = f"s3://{CHUNKED_BUCKET}/{full_path}/{original_filename}_page_{page_number}.pdf"
+        else:
+            metadata['chunk_s3_uri'] = f"s3://{CHUNKED_BUCKET}/{original_filename}_page_{page_number}.pdf"
 
         return metadata
     
