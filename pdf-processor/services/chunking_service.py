@@ -100,6 +100,11 @@ class ChunkingService:
             metadata['chunk_s3_uri'] = f"s3://{CHUNKED_BUCKET}/{full_path}/{original_filename}_page_{page_number}.pdf"
         else:
             metadata['chunk_s3_uri'] = f"s3://{CHUNKED_BUCKET}/{original_filename}_page_{page_number}.pdf"
+            
+        # Debug logging for URI verification
+        self.logger.info(f"DEBUG: Processing key: {key}")
+        self.logger.info(f"DEBUG: full_path extracted: {full_path}")
+        self.logger.info(f"DEBUG: Generated chunk_s3_uri: {metadata['chunk_s3_uri']}")
 
         return metadata
     
