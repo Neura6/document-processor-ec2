@@ -222,8 +222,8 @@ class Orchestrator:
                         from services.metadata_service import MetadataService
                         metadata_service = MetadataService()
                         metadata_service.create_metadata_for_file(
-                            s3_key=chunk_key,
-                            bucket=self.CHUNKED_BUCKET
+                            chunk_key,
+                            self.CHUNKED_BUCKET
                         )
                         self.logger.info(f"Created metadata file for {chunk_key}")
                     except Exception as e:
