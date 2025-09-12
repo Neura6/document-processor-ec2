@@ -106,11 +106,13 @@ class MetadataService:
         try:
             # Parse the S3 key to extract folder structure
             parts = s3_key.split('/')
-            if len(parts) < 2:
+            if len(parts) < 1:
                 self.logger.warning(f"Invalid S3 key format: {s3_key}")
                 return False
             
-            document_type = parts[0]
+            # Extract folder information from the path
+            folder = parts[0] if parts else 'unknown'
+            document_type = parts[0] if parts else 'unknown'
             country = parts[1] if len(parts) > 1 else None
             complexity = parts[2] if len(parts) > 2 else None
             
