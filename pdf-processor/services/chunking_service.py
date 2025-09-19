@@ -8,7 +8,7 @@ import os
 from io import BytesIO
 import logging
 from typing import List, Dict, Any, Tuple
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
 from config import CHUNKED_BUCKET
@@ -125,7 +125,7 @@ class ChunkingService:
         self.logger.info(f"=== END DEBUG ===")
 
         return metadata
-    
+       
     def create_metadata_page(self, metadata: Dict[str, Any]) -> PyPDF2.PageObject:
         """
         Create a PDF page containing metadata exactly as done in Lambda's create_metadata_page_content
@@ -182,7 +182,7 @@ class ChunkingService:
 
     def _create_metadata_page(self, metadata: Dict[str, Any]) -> PyPDF2.PageObject:
         """
-        Create a PDF page with metadata information exactly as done in Lambda's create_metadata_page_content.
+        Create a PDF page with metadata information in structured table format.
         
         Args:
             metadata: Dictionary containing metadata
@@ -191,25 +191,103 @@ class ChunkingService:
             PyPDF2 PageObject with metadata
         """
         try:
-            # Create a new PDF with metadata - Lambda style
             packet = BytesIO()
             c = canvas.Canvas(packet, pagesize=letter)
-            # Set font and starting position - Lambda style
-            c.setFont("Helvetica", 8)
-            y = 750  # Starting y coordinate
-
-            # Draw each metadata item - Lambda style
-            for key, value in metadata.items():
-                # Handle None values by converting to string "None" or skipping
-                value_str = str(value) if value is not None else "None"
-                c.drawString(100, y, f"{key}: {value_str}")
-                y -= 12  # Move down for the next line (reduced spacing)
-
+            
+            # Title
+            c.setFont("Helvetica-Bold", 14)
+            c.drawString(50, 750, "Document Metadata")
+            
+            # Table setup
+            c.setFont("Helvetica", 10)
+            y_start = 720
+            row_height = 20
+            col1_x = 50   # Field name column
+            col2_x = 200  # Field value column
+            table_width = 500
+            
+            # Draw table header
+            c.setFont("Helvetica-Bold", 10)
+            c.drawString(col1_x, y_start, "Field")
+            c.drawString(col2_x, y_start, "Value")
+            
+            # Draw header line
+            c.line(col1_x, y_start - 5, col1_x + table_width, y_start - 5)
+            
+            # Draw table rows
+            c.setFont("Helvetica", 10)
+            y = y_start - row_height
+            
+            # Define field display order and labels
+            field_labels = {
+                'document_name': 'Document Name',
+                'processed_file_path': 'Processed File Path', 
+                'page_number': 'Page Number',
+                'total_pages': 'Total Pages',
+                'chunk_s3_uri': 'Chunk S3 Uri',
+                'standard_type': 'Standard Type',
+                'country': 'Country',
+                'document_type': 'Document Type',
+                'document_category': 'Document Category',
+                'document_sub-category': 'Document Sub-Category',
+                'year': 'Year',
+                'state': 'State',
+                'State': 'State',  # Handle both capitalizations
+                'state_category': 'State Category',
+                'State_category': 'State Category',  # Handle both capitalizations
+                'Standard_type': 'Standard Type',  # Handle capitalization inconsistency
+                'complexity': 'Complexity'
+            }
+            
+            for key, label in field_labels.items():
+                if key in metadata:
+                    value_str = str(metadata[key]) if metadata[key] is not None else "None"
+                    
+                    # Draw field name
+                    c.drawString(col1_x, y, f"{label}:")
+                    
+                    # Handle long values (especially URIs)
+                    if len(value_str) > 50:
+                        # Split long values into multiple lines
+                        max_chars = 50
+                        lines = []
+                        for i in range(0, len(value_str), max_chars):
+                            lines.append(value_str[i:i+max_chars])
+                        
+                        # Draw first line
+                        c.drawString(col2_x, y, lines[0])
+                        
+                        # Draw additional lines with proper spacing
+                        for i, line in enumerate(lines[1:], 1):
+                            y -= 12
+                            c.drawString(col2_x, y, line)
+                    else:
+                        # Draw short values normally
+                        c.drawString(col2_x, y, value_str)
+                    
+                    y -= row_height
+                    
+                    # Add separator line between rows
+                    c.setStrokeColorRGB(0.8, 0.8, 0.8)
+                    c.line(col1_x, y + 10, col1_x + table_width, y + 10)
+                    c.setStrokeColorRGB(0, 0, 0)  # Reset to black
+            
+            # Draw table border
+            c.rect(col1_x - 10, y, table_width + 20, y_start - y + 20)
+            
+            # Add timestamp in IST
+            # c.setFont("Helvetica", 8)
+            # ist = timezone(timedelta(hours=5, minutes=30))  # IST is UTC+5:30
+            # current_time_ist = datetime.now(ist)
+            # c.drawString(col1_x, y - 30, f"Generated: {current_time_ist.strftime('%Y-%m-%d %H:%M:%S IST')}")
+            
             c.showPage()
             c.save()
             packet.seek(0)
-            # Return the BytesIO object containing the PDF metadata page content
-            return PyPDF2.PdfReader(packet).pages[0]
+            
+            # Convert to PDF page
+            metadata_pdf = PyPDF2.PdfReader(packet)
+            return metadata_pdf.pages[0]
             
         except Exception as e:
             self.logger.error(f"Error creating metadata page: {e}")
