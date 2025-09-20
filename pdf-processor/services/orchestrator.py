@@ -181,7 +181,7 @@ class Orchestrator:
             files_in_chunking.inc()
             pipeline_stage_files.labels(stage='chunking').inc()
             chunk_start = time.time()
-            chunks = self.chunking_service.chunk_pdf(pdf_stream, file_key)
+            chunks = self.chunking_service.chunk_pdf(pdf_stream, file_key, cleaned_key)
             processing_duration_seconds.labels(stage='chunking').observe(time.time() - chunk_start)
             chunks_created_total.inc(len(chunks))
             files_in_chunking.dec()

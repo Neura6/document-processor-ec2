@@ -23,14 +23,15 @@ class ChunkingService:
         self.logger = logging.getLogger(__name__)
         self.metadata_service = MetadataService()
     
-    def extract_metadata(self, key: str, page_number: int = 1, total_pages: int = 1) -> Dict[str, Any]:
+    def extract_metadata(self, key: str, page_number: int = 1, total_pages: int = 1, cleaned_key: str = None) -> Dict[str, Any]:
         """
         Extract metadata from S3 key path - exactly matching Lambda's extract_metadata_from_source_key
         
         Args:
-            key: S3 key path
+            key: Original S3 key path
             page_number: Current page number
             total_pages: Total pages in document
+            cleaned_key: Cleaned S3 key path (actual path where chunks will be saved)
             
         Returns:
             Dictionary with extracted metadata
@@ -98,28 +99,39 @@ class ChunkingService:
                 metadata['country'] = parts[1]
             metadata['document_name'] = os.path.splitext(parts[-1])[0]
 
-        # Build the correct S3 URI path structure - preserve exact folder structure
-        original_filename = os.path.splitext(parts[-1])[0]
-        full_path = key.rsplit('/', 1)[0] if '/' in key else ''
-        
         # Add page-specific metadata
         metadata['page_number'] = page_number
         metadata['total_pages'] = total_pages
         
-        # Ensure proper path construction for chunk_s3_uri with exact folder structure
-        if full_path:
-            metadata['chunk_s3_uri'] = f"s3://{CHUNKED_BUCKET}/{full_path}/{original_filename}_page_{page_number}.pdf"
+        # Generate chunk_s3_uri EXACTLY as orchestrator generates chunk_key
+        # Use cleaned_key if provided (from orchestrator), otherwise use original key
+        actual_key = cleaned_key if cleaned_key else key
+        
+        # Extract folder path and filename exactly as orchestrator does
+        folder_path = '/'.join(actual_key.split('/')[:-1]) if '/' in actual_key else ''
+        filename_only = actual_key.split('/')[-1]
+        base_name = os.path.splitext(filename_only)[0]
+        
+        # Generate chunk_s3_uri EXACTLY as orchestrator generates chunk_key
+        if folder_path:
+            chunk_key = f"{folder_path}/{base_name}_page_{page_number}.pdf"
         else:
-            metadata['chunk_s3_uri'] = f"s3://{CHUNKED_BUCKET}/{original_filename}_page_{page_number}.pdf"
+            chunk_key = f"{base_name}_page_{page_number}.pdf"
+            
+        metadata['chunk_s3_uri'] = f"s3://{CHUNKED_BUCKET}/{chunk_key}"
             
         # CRITICAL DEBUG LOGGING - will show in logs
         self.logger.info(f"=== METADATA EXTRACTION DEBUG ===")
         self.logger.info(f"INPUT KEY: {key}")
+        self.logger.info(f"CLEANED KEY: {cleaned_key}")
+        self.logger.info(f"ACTUAL KEY USED: {actual_key}")
         self.logger.info(f"PARTS: {parts}")
         self.logger.info(f"FOLDER: {folder}")
+        self.logger.info(f"FOLDER_PATH: {folder_path}")
+        self.logger.info(f"BASE_NAME: {base_name}")
+        self.logger.info(f"CHUNK_KEY: {chunk_key}")
         self.logger.info(f"COUNTRY: {metadata.get('country', 'NOT FOUND')}")
         self.logger.info(f"DOCUMENT_NAME: {metadata.get('document_name', 'NOT FOUND')}")
-        self.logger.info(f"FULL_PATH: {full_path}")
         self.logger.info(f"FINAL S3 URI: {metadata['chunk_s3_uri']}")
         self.logger.info(f"COMPLETE METADATA: {metadata}")
         self.logger.info(f"=== END DEBUG ===")
@@ -138,13 +150,14 @@ class ChunkingService:
         """
         return self._create_metadata_page(metadata)
     
-    def chunk_pdf(self, pdf_stream: BytesIO, s3_key: str) -> List[Tuple[PyPDF2.PdfWriter, Dict[str, Any]]]:
+    def chunk_pdf(self, pdf_stream: BytesIO, s3_key: str, cleaned_key: str = None) -> List[Tuple[PyPDF2.PdfWriter, Dict[str, Any]]]:
         """
         Split PDF into individual pages with comprehensive metadata.
         
         Args:
             pdf_stream: PDF file as BytesIO
             s3_key: S3 key for metadata extraction
+            cleaned_key: Cleaned S3 key path (actual path where chunks will be saved)
             
         Returns:
             List of (pdf_writer, metadata) tuples
@@ -163,7 +176,7 @@ class ChunkingService:
                 writer = PyPDF2.PdfWriter()
                 
                 # Get enhanced metadata for this specific page
-                metadata = self.extract_metadata(s3_key, page_num + 1, total_pages)
+                metadata = self.extract_metadata(s3_key, page_num + 1, total_pages, cleaned_key)
                 
                 # Create and prepend metadata page (Lambda style - metadata first)
                 metadata_page = self._create_metadata_page(metadata)
