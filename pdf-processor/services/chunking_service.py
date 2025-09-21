@@ -210,40 +210,31 @@ class ChunkingService:
             PyPDF2 PageObject with metadata
         """
         try:
-            # Step 1: Create landscape page FIRST using PyPDF2
-            from PyPDF2 import PageObject
-            landscape_page = PageObject.create_blank_page(width=792, height=612)
-            self.logger.info(f"Created blank landscape page: 792x612 (sleeping position)")
+            # Use PyMuPDF (fitz) to create landscape page - more reliable than ReportLab
+            import fitz  # PyMuPDF
             
-            # Step 2: Create canvas directly on landscape page using ReportLab
-            packet = BytesIO()
-            c = canvas.Canvas(packet, pagesize=(792, 612))  # Direct landscape canvas
+            # Create a new PDF document with landscape page
+            doc = fitz.open()  # Create new PDF
+            landscape_page = doc.new_page(width=792, height=612)  # Landscape: 792x612
             
-            self.logger.info(f"Writing metadata directly on landscape canvas: 792x612")
+            self.logger.info(f"Created landscape page using PyMuPDF: 792x612")
             
-            # Title - positioned for landscape (792 wide, 612 tall)
-            c.setFont("Helvetica-Bold", 14)
-            c.drawString(50, 550, "Document Metadata")
-            
-            # Table setup for landscape
-            c.setFont("Helvetica", 10)
-            y_start = 520
-            row_height = 20
+            # Add metadata table to the landscape page using PyMuPDF
+            y_pos = 80  # Start position from top
+            row_height = 25
             col1_x = 50   # Field name column
-            col2_x = 200  # Field value column  
-            table_width = 700  # Landscape table width
+            col2_x = 200  # Field value column
             
-            # Draw table header
-            c.setFont("Helvetica-Bold", 10)
-            c.drawString(col1_x, y_start, "Field")
-            c.drawString(col2_x, y_start, "Value")
+            # Add table header
+            landscape_page.insert_text((col1_x, y_pos), "Field", fontsize=12, color=(0, 0, 0))
+            landscape_page.insert_text((col2_x, y_pos), "Value", fontsize=12, color=(0, 0, 0))
             
             # Draw header line
-            c.line(col1_x, y_start - 5, col1_x + table_width, y_start - 5)
+            landscape_page.draw_line((col1_x, y_pos + 10), (col1_x + 650, y_pos + 10))
             
-            # Draw table rows
-            c.setFont("Helvetica", 10)
-            y = y_start - row_height
+            y_pos += row_height
+            
+            self.logger.info(f"Added table header to landscape page")
             
             # Define field display order and labels
             field_labels = {
@@ -266,12 +257,13 @@ class ChunkingService:
                 'complexity': 'Complexity'
             }
             
+            # Add metadata fields using PyMuPDF
             for key, label in field_labels.items():
                 if key in metadata:
                     value_str = str(metadata[key]) if metadata[key] is not None else "None"
                     
-                    # Draw field name
-                    c.drawString(col1_x, y, f"{label}:")
+                    # Add field name
+                    landscape_page.insert_text((col1_x, y_pos), f"{label}:", fontsize=10, color=(0, 0, 0))
                     
                     # Special handling for URIs to prevent spaces when extracted
                     if key == 'chunk_s3_uri' or 'uri' in key.lower():
@@ -280,70 +272,41 @@ class ChunkingService:
                         
                         # Start with readable font size for landscape
                         font_size = 8
-                        c.setFont("Helvetica", font_size)
-                        text_width = c.stringWidth(value_str, "Helvetica", font_size)
+                        
+                        # Calculate text width (approximate)
+                        text_width = len(value_str) * font_size * 0.6  # Rough estimate
                         
                         # Reduce font size until it fits in one line
-                        while text_width > available_width and font_size > 3:
+                        while text_width > available_width and font_size > 4:
                             font_size -= 1
-                            c.setFont("Helvetica", font_size)
-                            text_width = c.stringWidth(value_str, "Helvetica", font_size)
+                            text_width = len(value_str) * font_size * 0.6
                         
-                        self.logger.info(f"URI font size: {font_size}, text width: {text_width}, available: {available_width}")
+                        self.logger.info(f"URI font size: {font_size}, estimated width: {text_width}, available: {available_width}")
                         
-                        # Draw the URI directly on landscape canvas
-                        c.drawString(col2_x, y, value_str)
-                        c.setFont("Helvetica", 10)  # Reset to normal font
-                    elif len(value_str) > 50:
-                        # Split other long values into multiple lines
-                        max_chars = 50
-                        lines = []
-                        for i in range(0, len(value_str), max_chars):
-                            lines.append(value_str[i:i+max_chars])
-                        
-                        # Draw first line
-                        c.drawString(col2_x, y, lines[0])
-                        
-                        # Draw additional lines with proper spacing
-                        for i, line in enumerate(lines[1:], 1):
-                            y -= 12
-                            c.drawString(col2_x, y, line)
+                        # Add the URI directly on landscape page
+                        landscape_page.insert_text((col2_x, y_pos), value_str, fontsize=font_size, color=(0, 0, 0))
                     else:
-                        # Draw short values normally
-                        c.drawString(col2_x, y, value_str)
+                        # Add short values normally
+                        landscape_page.insert_text((col2_x, y_pos), value_str, fontsize=10, color=(0, 0, 0))
                     
-                    y -= row_height
-                    
-                    # Add separator line between rows
-                    c.setStrokeColorRGB(0.8, 0.8, 0.8)
-                    c.line(col1_x, y + 10, col1_x + table_width, y + 10)
-                    c.setStrokeColorRGB(0, 0, 0)  # Reset to black
+                    y_pos += row_height
             
-            # Draw table border
-            c.rect(col1_x - 10, y, table_width + 20, y_start - y + 20)
+            # Convert PyMuPDF document to bytes
+            pdf_bytes = doc.tobytes()
+            doc.close()
             
-            # Add timestamp in IST
-            # c.setFont("Helvetica", 8)
-            # ist = timezone(timedelta(hours=5, minutes=30))  # IST is UTC+5:30
-            # current_time_ist = datetime.now(ist)
-            # c.drawString(col1_x, y - 30, f"Generated: {current_time_ist.strftime('%Y-%m-%d %H:%M:%S IST')}")
-            
-            # Save the canvas to PDF
-            c.showPage()
-            c.save()
-            packet.seek(0)
-            
-            # Step 3: Convert landscape canvas to PDF page
+            # Convert to PyPDF2 format
+            packet = BytesIO(pdf_bytes)
             metadata_pdf = PyPDF2.PdfReader(packet)
-            landscape_content = metadata_pdf.pages[0]
+            final_page = metadata_pdf.pages[0]
             
-            # Verify the page dimensions
-            media_box = landscape_content.mediabox
+            # Verify dimensions
+            media_box = final_page.mediabox
             width = float(media_box.width)
             height = float(media_box.height)
-            self.logger.info(f"Final landscape page dimensions: {width}x{height}")
+            self.logger.info(f"Final PyMuPDF landscape page dimensions: {width}x{height}")
             
-            return landscape_content
+            return final_page
             
         except Exception as e:
             self.logger.error(f"Error creating metadata page: {e}")
@@ -354,3 +317,4 @@ class ChunkingService:
             c.save()
             packet.seek(0)
             return PyPDF2.PdfReader(packet).pages[0]
+    
