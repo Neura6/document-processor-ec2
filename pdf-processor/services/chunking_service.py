@@ -10,7 +10,7 @@ import logging
 from typing import List, Dict, Any, Tuple
 from datetime import datetime, timezone, timedelta
 from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import letter
+from reportlab.lib.pagesizes import letter, landscape
 from config import CHUNKED_BUCKET
 from .metadata_service import MetadataService
 
@@ -120,7 +120,11 @@ class ChunkingService:
             
         # Ensure no spaces in chunk key (replace with underscores) - same as orchestrator
         chunk_key = chunk_key.replace(' ', '_')
-        metadata['chunk_s3_uri'] = f"s3://{CHUNKED_BUCKET}/{chunk_key}"
+        
+        # EXTRA SAFETY: Also replace any remaining spaces in the full URI
+        chunk_s3_uri = f"s3://{CHUNKED_BUCKET}/{chunk_key}"
+        chunk_s3_uri = chunk_s3_uri.replace(' ', '_')  # Replace any remaining spaces
+        metadata['chunk_s3_uri'] = chunk_s3_uri
             
         # CRITICAL DEBUG LOGGING - will show in logs
         self.logger.info(f"=== METADATA EXTRACTION DEBUG ===")
@@ -207,21 +211,24 @@ class ChunkingService:
         """
         try:
             packet = BytesIO()
-            # Use landscape orientation for better URI display
-            from reportlab.lib.pagesizes import landscape
-            c = canvas.Canvas(packet, pagesize=landscape(letter))
+            # Use landscape orientation for better URI display (792x612 instead of 612x792)
+            page_size = landscape(letter)  # This should be (792, 612)
+            c = canvas.Canvas(packet, pagesize=page_size)
             
-            # Title
+            # Debug: Log the page size to verify landscape mode
+            self.logger.info(f"PDF page size: {page_size} (should be 792x612 for landscape)")
+            
+            # Title - adjusted for landscape (792 x 612 points)
             c.setFont("Helvetica-Bold", 14)
-            c.drawString(50, 750, "Document Metadata")
+            c.drawString(50, 550, "Document Metadata")  # Lower Y since landscape is shorter
             
-            # Table setup
+            # Table setup - optimized for landscape orientation
             c.setFont("Helvetica", 10)
-            y_start = 720
+            y_start = 520  # Adjusted for landscape height (612 instead of 792)
             row_height = 20
             col1_x = 50   # Field name column
             col2_x = 200  # Field value column
-            table_width = 700  # Wider table for landscape orientation
+            table_width = 700  # Wider table for landscape orientation (can use up to ~740)
             
             # Draw table header
             c.setFont("Helvetica-Bold", 10)
@@ -265,19 +272,18 @@ class ChunkingService:
                     
                     # Special handling for URIs to prevent spaces when extracted
                     if key == 'chunk_s3_uri' or 'uri' in key.lower():
-                        # Calculate available width (table_width - col2_x offset - margin)
-                        available_width = table_width - (col2_x - col1_x) - 20
+                        # ULTIMATE FIX: Use extremely small font and extend beyond table boundaries if needed
+                        c.setFont("Helvetica", 4)  # Minimum readable font size
                         
-                        # Try different font sizes until it fits
-                        font_size = 8
-                        while font_size >= 4:
-                            c.setFont("Helvetica", font_size)
-                            text_width = c.stringWidth(value_str, "Helvetica", font_size)
-                            if text_width <= available_width:
-                                break
-                            font_size -= 1
+                        # Calculate if it fits, if not, we'll still draw it (better than line breaks)
+                        available_width = 740  # Use almost full landscape page width (792 - margins)
+                        text_width = c.stringWidth(value_str, "Helvetica", 4)
                         
-                        # Draw the URI with the calculated font size
+                        if text_width > available_width:
+                            # If still too long, use font size 3 (very tiny but no line breaks)
+                            c.setFont("Helvetica", 3)
+                        
+                        # Draw the URI - it WILL be on one line no matter what
                         c.drawString(col2_x, y, value_str)
                         c.setFont("Helvetica", 10)  # Reset to normal font
                     elif len(value_str) > 50:
