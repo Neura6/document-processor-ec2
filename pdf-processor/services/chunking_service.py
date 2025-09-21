@@ -207,7 +207,9 @@ class ChunkingService:
         """
         try:
             packet = BytesIO()
-            c = canvas.Canvas(packet, pagesize=letter)
+            # Use landscape orientation for better URI display
+            from reportlab.lib.pagesizes import landscape
+            c = canvas.Canvas(packet, pagesize=landscape(letter))
             
             # Title
             c.setFont("Helvetica-Bold", 14)
@@ -219,7 +221,7 @@ class ChunkingService:
             row_height = 20
             col1_x = 50   # Field name column
             col2_x = 200  # Field value column
-            table_width = 500
+            table_width = 700  # Wider table for landscape orientation
             
             # Draw table header
             c.setFont("Helvetica-Bold", 10)
@@ -263,8 +265,8 @@ class ChunkingService:
                     
                     # Special handling for URIs to prevent spaces when extracted
                     if key == 'chunk_s3_uri' or 'uri' in key.lower():
-                        # For URIs, use smaller font to fit on one line
-                        c.setFont("Helvetica", 5)  # Much smaller font for URIs
+                        # For URIs, use smaller font - should fit in landscape mode
+                        c.setFont("Helvetica", 8)  # Readable font for URIs in landscape
                         c.drawString(col2_x, y, value_str)
                         c.setFont("Helvetica", 10)  # Reset to normal font
                     elif len(value_str) > 50:
