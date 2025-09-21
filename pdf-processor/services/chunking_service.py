@@ -210,23 +210,28 @@ class ChunkingService:
             PyPDF2 PageObject with metadata
         """
         try:
-            packet = BytesIO()
-            # Create landscape page directly - width=792, height=612
-            c = canvas.Canvas(packet, pagesize=(792, 612))
+            # Step 1: Create landscape page FIRST using PyPDF2
+            from PyPDF2 import PageObject
+            landscape_page = PageObject.create_blank_page(width=792, height=612)
+            self.logger.info(f"Created blank landscape page: 792x612 (sleeping position)")
             
-            self.logger.info(f"Creating landscape page: 792 (width) x 612 (height)")
+            # Step 2: Create canvas directly on landscape page using ReportLab
+            packet = BytesIO()
+            c = canvas.Canvas(packet, pagesize=(792, 612))  # Direct landscape canvas
+            
+            self.logger.info(f"Writing metadata directly on landscape canvas: 792x612")
             
             # Title - positioned for landscape (792 wide, 612 tall)
             c.setFont("Helvetica-Bold", 14)
             c.drawString(50, 550, "Document Metadata")
             
-            # Table setup for landscape - use almost full width
+            # Table setup for landscape
             c.setFont("Helvetica", 10)
             y_start = 520
             row_height = 20
             col1_x = 50   # Field name column
             col2_x = 200  # Field value column  
-            table_width = 720  # Use almost full 792 width (792 - 50 - 20 margins)
+            table_width = 700  # Landscape table width
             
             # Draw table header
             c.setFont("Helvetica-Bold", 10)
@@ -270,10 +275,10 @@ class ChunkingService:
                     
                     # Special handling for URIs to prevent spaces when extracted
                     if key == 'chunk_s3_uri' or 'uri' in key.lower():
-                        # Use maximum landscape width for URIs - wider table means more space
-                        available_width = 560  # 792 - 200 (col2_x) - 30 (right margin for wider table)
+                        # Use full landscape width for URIs (792 - 200 - 50 margins)
+                        available_width = 540  # Full landscape width available
                         
-                        # Start with readable font size
+                        # Start with readable font size for landscape
                         font_size = 8
                         c.setFont("Helvetica", font_size)
                         text_width = c.stringWidth(value_str, "Helvetica", font_size)
@@ -286,7 +291,7 @@ class ChunkingService:
                         
                         self.logger.info(f"URI font size: {font_size}, text width: {text_width}, available: {available_width}")
                         
-                        # Draw the URI - guaranteed to be on one line
+                        # Draw the URI directly on landscape canvas
                         c.drawString(col2_x, y, value_str)
                         c.setFont("Helvetica", 10)  # Reset to normal font
                     elif len(value_str) > 50:
@@ -328,17 +333,17 @@ class ChunkingService:
             c.save()
             packet.seek(0)
             
-            # Convert to PDF page
+            # Step 3: Convert landscape canvas to PDF page
             metadata_pdf = PyPDF2.PdfReader(packet)
-            page = metadata_pdf.pages[0]
+            landscape_content = metadata_pdf.pages[0]
             
-            # Log the final page dimensions
-            media_box = page.mediabox
+            # Verify the page dimensions
+            media_box = landscape_content.mediabox
             width = float(media_box.width)
             height = float(media_box.height)
-            self.logger.info(f"Final page dimensions: {width}x{height}")
+            self.logger.info(f"Final landscape page dimensions: {width}x{height}")
             
-            return page
+            return landscape_content
             
         except Exception as e:
             self.logger.error(f"Error creating metadata page: {e}")
