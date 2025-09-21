@@ -262,9 +262,9 @@ class ChunkingService:
                     c.drawString(col1_x, y, f"{label}:")
                     
                     # Special handling for URIs to prevent spaces when extracted
-                    if key == 'Chunk S3 Uri' or 'uri' in key.lower():
+                    if key == 'chunk_s3_uri' or 'uri' in key.lower():
                         # For URIs, use smaller font to fit on one line
-                        c.setFont("Helvetica", 7)  # Much smaller font for URIs
+                        c.setFont("Helvetica", 5)  # Much smaller font for URIs
                         c.drawString(col2_x, y, value_str)
                         c.setFont("Helvetica", 10)  # Reset to normal font
                     elif len(value_str) > 50:
