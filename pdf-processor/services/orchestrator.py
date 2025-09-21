@@ -210,6 +210,9 @@ class Orchestrator:
                 else:
                     chunk_key = f"{base_name}_page_{page_num}.pdf"
                 
+                # Ensure no spaces in chunk key (replace with underscores)
+                chunk_key = chunk_key.replace(' ', '_')
+                
                 upload_start = time.time()
                 if self.s3_service.put_object(self.CHUNKED_BUCKET, chunk_key, output.getvalue()):
                     success_count += 1

@@ -118,6 +118,8 @@ class ChunkingService:
         else:
             chunk_key = f"{base_name}_page_{page_number}.pdf"
             
+        # Ensure no spaces in chunk key (replace with underscores) - same as orchestrator
+        chunk_key = chunk_key.replace(' ', '_')
         metadata['chunk_s3_uri'] = f"s3://{CHUNKED_BUCKET}/{chunk_key}"
             
         # CRITICAL DEBUG LOGGING - will show in logs
@@ -259,9 +261,14 @@ class ChunkingService:
                     # Draw field name
                     c.drawString(col1_x, y, f"{label}:")
                     
-                    # Handle long values (especially URIs)
-                    if len(value_str) > 50:
-                        # Split long values into multiple lines
+                    # Special handling for URIs to prevent spaces when extracted
+                    if key == 'chunk_s3_uri' or 'uri' in key.lower():
+                        # For URIs, use smaller font to fit on one line
+                        c.setFont("Helvetica", 7)  # Much smaller font for URIs
+                        c.drawString(col2_x, y, value_str)
+                        c.setFont("Helvetica", 10)  # Reset to normal font
+                    elif len(value_str) > 50:
+                        # Split other long values into multiple lines
                         max_chars = 50
                         lines = []
                         for i in range(0, len(value_str), max_chars):
