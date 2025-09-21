@@ -265,8 +265,19 @@ class ChunkingService:
                     
                     # Special handling for URIs to prevent spaces when extracted
                     if key == 'chunk_s3_uri' or 'uri' in key.lower():
-                        # For URIs, use smaller font - should fit in landscape mode
-                        c.setFont("Helvetica", 8)  # Readable font for URIs in landscape
+                        # Calculate available width (table_width - col2_x offset - margin)
+                        available_width = table_width - (col2_x - col1_x) - 20
+                        
+                        # Try different font sizes until it fits
+                        font_size = 8
+                        while font_size >= 4:
+                            c.setFont("Helvetica", font_size)
+                            text_width = c.stringWidth(value_str, "Helvetica", font_size)
+                            if text_width <= available_width:
+                                break
+                            font_size -= 1
+                        
+                        # Draw the URI with the calculated font size
                         c.drawString(col2_x, y, value_str)
                         c.setFont("Helvetica", 10)  # Reset to normal font
                     elif len(value_str) > 50:
