@@ -211,23 +211,24 @@ class ChunkingService:
         """
         try:
             packet = BytesIO()
-            # Create landscape page explicitly with dimensions (792, 612)
-            c = canvas.Canvas(packet, pagesize=(792, 612))  # Explicit landscape dimensions
+            # Create ACTUAL landscape page with proper dimensions
+            landscape_size = (792, 612)  # Width=792, Height=612 (landscape)
+            c = canvas.Canvas(packet, pagesize=landscape_size)
             
-            # Debug: Log that we're using explicit landscape dimensions
-            self.logger.info(f"Creating PDF with explicit landscape dimensions: 792x612")
+            # Debug: Log that we're creating true landscape
+            self.logger.info(f"Creating TRUE landscape page: {landscape_size[0]}x{landscape_size[1]}")
             
-            # Title - positioned for landscape (792 wide x 612 tall)
+            # Title - positioned for ACTUAL landscape (792 wide, 612 tall)
             c.setFont("Helvetica-Bold", 14)
-            c.drawString(50, 550, "Document Metadata")
+            c.drawString(50, 550, "Document Metadata")  # Lower Y for 612 height
             
-            # Table setup - optimized for landscape orientation
+            # Table setup - optimized for TRUE landscape dimensions
             c.setFont("Helvetica", 10)
-            y_start = 520  # Adjusted for landscape height (612 total)
+            y_start = 520  # Adjusted for 612 height
             row_height = 20
             col1_x = 50   # Field name column
             col2_x = 200  # Field value column  
-            table_width = 700  # Wide table for landscape (792 - margins)
+            table_width = 700  # Wide table for 792 width
             
             # Draw table header
             c.setFont("Helvetica-Bold", 10)
@@ -271,18 +272,23 @@ class ChunkingService:
                     
                     # Special handling for URIs to prevent spaces when extracted
                     if key == 'chunk_s3_uri' or 'uri' in key.lower():
-                        # ULTIMATE FIX: Use extremely small font and extend beyond table boundaries if needed
-                        c.setFont("Helvetica", 4)  # Minimum readable font size
+                        # Use landscape width for URIs - we have 792 points total width
+                        available_width = 540  # 792 - 200 (col2_x) - 50 (right margin)
                         
-                        # Calculate if it fits, if not, we'll still draw it (better than line breaks)
-                        available_width = 740  # Use almost full landscape page width (792 - margins)
-                        text_width = c.stringWidth(value_str, "Helvetica", 4)
+                        # Start with readable font size
+                        font_size = 8
+                        c.setFont("Helvetica", font_size)
+                        text_width = c.stringWidth(value_str, "Helvetica", font_size)
                         
-                        if text_width > available_width:
-                            # If still too long, use font size 3 (very tiny but no line breaks)
-                            c.setFont("Helvetica", 3)
+                        # Reduce font size until it fits in one line
+                        while text_width > available_width and font_size > 3:
+                            font_size -= 1
+                            c.setFont("Helvetica", font_size)
+                            text_width = c.stringWidth(value_str, "Helvetica", font_size)
                         
-                        # Draw the URI - it WILL be on one line no matter what
+                        self.logger.info(f"URI font size: {font_size}, text width: {text_width}, available: {available_width}")
+                        
+                        # Draw the URI - guaranteed to be on one line
                         c.drawString(col2_x, y, value_str)
                         c.setFont("Helvetica", 10)  # Reset to normal font
                     elif len(value_str) > 50:
@@ -323,15 +329,23 @@ class ChunkingService:
             c.save()
             packet.seek(0)
             
-            # Convert to PDF page
+            # Convert to PDF page - should already be landscape
             metadata_pdf = PyPDF2.PdfReader(packet)
-            return metadata_pdf.pages[0]
+            page = metadata_pdf.pages[0]
+            
+            # Verify the page dimensions
+            media_box = page.mediabox
+            width = float(media_box.width)
+            height = float(media_box.height)
+            self.logger.info(f"Created page dimensions: {width}x{height} (should be 792x612)")
+            
+            return page
             
         except Exception as e:
             self.logger.error(f"Error creating metadata page: {e}")
-            # Return empty page if metadata creation fails
+            # Return empty page if metadata creation fails - also use landscape
             packet = BytesIO()
-            c = canvas.Canvas(packet, pagesize=letter)
+            c = canvas.Canvas(packet, pagesize=(792, 612))  # Landscape fallback too
             c.showPage()
             c.save()
             packet.seek(0)
