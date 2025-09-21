@@ -211,24 +211,23 @@ class ChunkingService:
         """
         try:
             packet = BytesIO()
-            # Use landscape orientation for better URI display (792x612 instead of 612x792)
-            page_size = landscape(letter)  # This should be (792, 612)
-            c = canvas.Canvas(packet, pagesize=page_size)
+            # Create landscape page explicitly with dimensions (792, 612)
+            c = canvas.Canvas(packet, pagesize=(792, 612))  # Explicit landscape dimensions
             
-            # Debug: Log the page size to verify landscape mode
-            self.logger.info(f"PDF page size: {page_size} (should be 792x612 for landscape)")
+            # Debug: Log that we're using explicit landscape dimensions
+            self.logger.info(f"Creating PDF with explicit landscape dimensions: 792x612")
             
-            # Title - adjusted for landscape (792 x 612 points)
+            # Title - positioned for landscape (792 wide x 612 tall)
             c.setFont("Helvetica-Bold", 14)
-            c.drawString(50, 550, "Document Metadata")  # Lower Y since landscape is shorter
+            c.drawString(50, 550, "Document Metadata")
             
             # Table setup - optimized for landscape orientation
             c.setFont("Helvetica", 10)
-            y_start = 520  # Adjusted for landscape height (612 instead of 792)
+            y_start = 520  # Adjusted for landscape height (612 total)
             row_height = 20
             col1_x = 50   # Field name column
-            col2_x = 200  # Field value column
-            table_width = 700  # Wider table for landscape orientation (can use up to ~740)
+            col2_x = 200  # Field value column  
+            table_width = 700  # Wide table for landscape (792 - margins)
             
             # Draw table header
             c.setFont("Helvetica-Bold", 10)
