@@ -212,22 +212,31 @@ class ChunkingService:
         """
         try:
             packet = BytesIO()
-            # Custom page size: wider and shorter to fit S3 URIs on single line
-            # Standard landscape letter is 792x612, we'll use 1000x500 (much wider, shorter)
-            custom_page_size = (1000, 500)  # (width, height) in points
+            # Custom page size: 1000x500 points (width x height)
+            # This is wider than standard landscape to fit long URIs
+            custom_page_size = (1000, 500)  # Custom size in points
             c = canvas.Canvas(packet, pagesize=custom_page_size)
             
-            # Title - centered for custom wide page (1000px width)
-            c.setFont("Helvetica-Bold", 16)
-            c.drawString(400, 460, "Document Metadata")
+            # Log the page size for debugging
+            self.logger.info(f"Created PDF with page size: {custom_page_size}")
             
-            # Table setup - optimized for wide custom page (1000px width)
+            # Calculate positions based on landscape dimensions
+            page_width, page_height = custom_page_size
+            
+            # Title - centered for custom page
+            title = "Document Metadata"
+            c.setFont("Helvetica-Bold", 14)  # Slightly smaller font for custom size
+            title_width = c.stringWidth(title, "Helvetica-Bold", 14)
+            title_x = (page_width - title_width) / 2  # Center title
+            c.drawString(title_x, 450, title)  # Adjusted Y position for 500pt height
+            
+            # Table setup - optimized for custom wide page
             c.setFont("Helvetica", 10)
-            y_start = 430
+            y_start = 420  # Start below title
             row_height = 22
-            col1_x = 50   # Field name column
-            col2_x = 170  # Field value column (plenty of space)
-            table_width = 900  # Very wide table for custom page
+            col1_x = 50    # Field name column
+            col2_x = 200   # Field value column (wider for landscape)
+            table_width = page_width - 100  # Leave 50pt margins on each side
             
             # Draw table header
             c.setFont("Helvetica-Bold", 10)
@@ -298,12 +307,19 @@ class ChunkingService:
             # Draw table border
             c.rect(col1_x - 10, y, table_width + 20, y_start - y + 20)
             
-            # Add timestamp in IST - positioned for custom wide page
+            # Add timestamp in IST - positioned at bottom of page
             c.setFont("Helvetica", 8)
             ist = timezone(timedelta(hours=5, minutes=30))  # IST is UTC+5:30
             current_time_ist = datetime.now(ist)
-            c.drawString(col1_x, y - 30, f"Generated: {current_time_ist.strftime('%Y-%m-%d %H:%M:%S IST')}")
-            c.drawString(col1_x + 500, y - 30, f"Format: Wide Metadata Page (1000x500) - Single Line URIs")
+            timestamp = f"Generated: {current_time_ist.strftime('%Y-%m-%d %H:%M:%S IST')}"
+            format_text = f"Page Size: {int(page_width)}x{int(page_height)} (Landscape)"
+            
+            # Position timestamp at bottom left
+            c.drawString(col1_x, 30, timestamp)
+            # Position format info at bottom right
+            format_text = f"Page Size: {int(page_width)}x{int(page_height)} (Custom Wide)"
+            format_x = page_width - c.stringWidth(format_text, "Helvetica", 8) - 20  # Reduced right margin
+            c.drawString(format_x, 30, format_text)
             
             c.showPage()
             c.save()
@@ -313,18 +329,20 @@ class ChunkingService:
             metadata_pdf = PyPDF2.PdfReader(packet)
             final_page = metadata_pdf.pages[0]
             
-            # Log success
-            self.logger.info(f"Created custom wide metadata page (1000x500) with single-line URIs")
+            # Log success with actual dimensions
+            media_box = final_page.mediabox
+            actual_width = float(media_box.width)
+            actual_height = float(media_box.height)
+            self.logger.info(f"Created landscape metadata page - Size: {actual_width}x{actual_height}")
             
             return final_page
             
         except Exception as e:
             self.logger.error(f"Error creating metadata page: {e}")
-            # Return empty page if metadata creation fails - use custom wide format for fallback too
+            # Return empty page if metadata creation fails - use custom size fallback
             packet = BytesIO()
-            c = canvas.Canvas(packet, pagesize=(1000, 500))  # Custom wide fallback
+            c = canvas.Canvas(packet, pagesize=(1000, 500))  # Custom size fallback
             c.showPage()
             c.save()
             packet.seek(0)
             return PyPDF2.PdfReader(packet).pages[0]
-    
