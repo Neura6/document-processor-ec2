@@ -223,20 +223,17 @@ class ChunkingService:
             # Calculate positions based on custom page dimensions
             page_width, page_height = custom_page_size
             
-            # Title - centered for custom page
-            title = "Document Metadata"
-            c.setFont("Helvetica-Bold", 14)  # Slightly smaller font for custom size
-            title_width = c.stringWidth(title, "Helvetica-Bold", 14)
-            title_x = (page_width - title_width) / 2  # Center title
-            c.drawString(title_x, 450, title)  # Adjusted Y position for 500pt height
+            # Title - centered for custom wide page (1000px width) - EXACT MATCH TO metadata_fixer.py
+            c.setFont("Helvetica-Bold", 16)
+            c.drawString(400, 460, "Document Metadata")
             
-            # Table setup - optimized for custom wide page
+            # Table setup - optimized for wide custom page (1000px width) - EXACT MATCH TO metadata_fixer.py
             c.setFont("Helvetica", 10)
-            y_start = 420  # Start below title
+            y_start = 430
             row_height = 22
-            col1_x = 50    # Field name column
-            col2_x = 200   # Field value column (wider for landscape)
-            table_width = page_width - 100  # Leave 50pt margins on each side
+            col1_x = 50   # Field name column
+            col2_x = 170  # Field value column (plenty of space)
+            table_width = 900  # Very wide table for custom page
             
             # Draw table header
             c.setFont("Helvetica-Bold", 10)
@@ -278,10 +275,10 @@ class ChunkingService:
                     # Draw field name
                     c.drawString(col1_x, y, f"{label}:")
                     
-                    # Handle long values - custom wide page can fit S3 URIs on single line
-                    if len(value_str) > 180:  # Very high limit for wide page
+                    # Handle long values - custom wide page can fit S3 URIs on single line - EXACT MATCH TO metadata_fixer.py
+                    if len(value_str) > 120:  # Very high limit for wide page
                         # Only break extremely long values (longer than typical S3 URIs)
-                        max_chars = 180  # Much more characters per line for wide page
+                        max_chars = 160  # Much more characters per line for wide page
                         lines = []
                         for i in range(0, len(value_str), max_chars):
                             lines.append(value_str[i:i+max_chars])
@@ -307,18 +304,12 @@ class ChunkingService:
             # Draw table border
             c.rect(col1_x - 10, y, table_width + 20, y_start - y + 20)
             
-            # Add timestamp in IST - positioned at bottom of page
+            # Add timestamp in IST - positioned for custom wide page - EXACT MATCH TO metadata_fixer.py
             c.setFont("Helvetica", 8)
             ist = timezone(timedelta(hours=5, minutes=30))  # IST is UTC+5:30
             current_time_ist = datetime.now(ist)
-            timestamp = f"Generated: {current_time_ist.strftime('%Y-%m-%d %H:%M:%S IST')}"
-            format_text = f"Page Size: {int(page_width)}x{int(page_height)} (Custom Wide)"
-            
-            # Position timestamp at bottom left
-            c.drawString(col1_x, 30, timestamp)
-            # Position format info at bottom right
-            format_x = page_width - c.stringWidth(format_text, "Helvetica", 8) - 20  # Reduced right margin
-            c.drawString(format_x, 30, format_text)
+            c.drawString(col1_x, y - 30, f"Generated: {current_time_ist.strftime('%Y-%m-%d %H:%M:%S IST')}")
+            c.drawString(col1_x + 500, y - 30, f"Format: Wide Metadata Page (1000x500) - Single Line URIs")
             
             c.showPage()
             c.save()
