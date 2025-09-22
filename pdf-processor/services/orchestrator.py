@@ -220,23 +220,28 @@ class Orchestrator:
                     processing_duration_seconds.labels(stage='s3_upload').observe(time.time() - upload_start)
                     self.logger.info(f"Uploaded chunk: {chunk_key}")
                     
-                    # Fix metadata page orientation to landscape
-                    try:
-                        from services.metadata_fixer import MetadataFixer
-                        fixer = MetadataFixer(s3_service=self.s3_service, bucket_name=self.CHUNKED_BUCKET)
-                        fix_result = fixer.fix_single_file(chunk_key)
-                        
-                        if fix_result['status'] == 'fixed':
-                            self.logger.info(f"✅ Fixed landscape orientation for: {chunk_key}")
-                        elif fix_result['status'] == 'skipped':
-                            self.logger.info(f"⏭️ Landscape fix skipped for: {chunk_key} - {fix_result['action_taken']}")
-                        else:
-                            self.logger.warning(f"⚠️ Landscape fix result for {chunk_key}: {fix_result['status']} - {fix_result.get('error', 'Unknown')}")
-                            
-                    except Exception as e:
-                        self.logger.error(f"❌ Failed to fix landscape orientation for {chunk_key}: {e}")
-                        processing_errors_total.labels(stage='metadata_fixing', error_type='landscape_fix_failed').inc()
-                        # Continue processing - don't fail the entire pipeline
+                    # COMMENTED OUT: Fix metadata page orientation to landscape
+                    # self.logger.info(f"🔧 Starting landscape fix for: {chunk_key}")
+                    # try:
+                    #     self.logger.info(f"🔧 Importing MetadataFixer...")
+                    #     from services.metadata_fixer import MetadataFixer
+                    #     self.logger.info(f"🔧 Creating MetadataFixer instance...")
+                    #     fixer = MetadataFixer(s3_service=self.s3_service, bucket_name=self.CHUNKED_BUCKET)
+                    #     self.logger.info(f"🔧 Calling fix_single_file for: {chunk_key}")
+                    #     fix_result = fixer.fix_single_file(chunk_key)
+                    #     self.logger.info(f"🔧 Fix result: {fix_result}")
+                    #     
+                    #     if fix_result['status'] == 'fixed':
+                    #         self.logger.info(f"✅ Fixed landscape orientation for: {chunk_key}")
+                    #     elif fix_result['status'] == 'skipped':
+                    #         self.logger.info(f"⏭️ Landscape fix skipped for: {chunk_key} - {fix_result['action_taken']}")
+                    #     else:
+                    #         self.logger.warning(f"⚠️ Landscape fix result for {chunk_key}: {fix_result['status']} - {fix_result.get('error', 'Unknown')}")
+                    #         
+                    # except Exception as e:
+                    #     self.logger.error(f"❌ Failed to fix landscape orientation for {chunk_key}: {e}")
+                    #     processing_errors_total.labels(stage='metadata_fixing', error_type='landscape_fix_failed').inc()
+                    #     # Continue processing - don't fail the entire pipeline
                     
                     # Create metadata file
                     try:
