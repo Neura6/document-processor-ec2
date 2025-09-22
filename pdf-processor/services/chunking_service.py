@@ -156,6 +156,28 @@ class ChunkingService:
         """
         return self._create_metadata_page(metadata)
     
+    def test_create_standalone_metadata_pdf(self, metadata: Dict[str, Any], output_path: str):
+        """
+        Test method to create a standalone metadata PDF file for debugging.
+        This creates a complete PDF file with just the metadata page.
+        """
+        try:
+            # Create metadata page
+            metadata_page = self._create_metadata_page(metadata)
+            
+            # Create a new PDF with just this page
+            writer = PdfWriter()
+            writer.add_page(metadata_page)
+            
+            # Write to file
+            with open(output_path, 'wb') as output_file:
+                writer.write(output_file)
+            
+            self.logger.info(f"Test metadata PDF created: {output_path}")
+            
+        except Exception as e:
+            self.logger.error(f"Error creating test metadata PDF: {e}")
+    
     def chunk_pdf(self, pdf_stream: BytesIO, s3_key: str, cleaned_key: str = None) -> List[Tuple[PdfWriter, Dict[str, Any]]]:
         """
         Split PDF into individual pages with comprehensive metadata.
@@ -186,10 +208,31 @@ class ChunkingService:
                 
                 # Create and prepend metadata page (Lambda style - metadata first)
                 metadata_page = self._create_metadata_page(metadata)
+                
+                # DEBUG: Log page dimensions before adding to writer
+                media_box_before = metadata_page.mediabox
+                self.logger.info(f"BEFORE adding to writer - Page size: {float(media_box_before.width)}x{float(media_box_before.height)}")
+                
                 writer.add_page(metadata_page)
                 
+                # DEBUG: Check if writer has any pages and log their dimensions
+                if len(writer.pages) > 0:
+                    added_page = writer.pages[0]
+                    media_box_after = added_page.mediabox
+                    self.logger.info(f"AFTER adding to writer - Page size: {float(media_box_after.width)}x{float(media_box_after.height)}")
+                
                 # Add the actual content page (original or processed)
-                writer.add_page(reader.pages[page_num])
+                content_page = reader.pages[page_num]
+                content_media_box = content_page.mediabox
+                self.logger.info(f"Content page size: {float(content_media_box.width)}x{float(content_media_box.height)}")
+                
+                writer.add_page(content_page)
+                
+                # DEBUG: Final check of all pages in writer
+                self.logger.info(f"Final writer has {len(writer.pages)} pages")
+                for i, page in enumerate(writer.pages):
+                    page_media_box = page.mediabox
+                    self.logger.info(f"Page {i+1} final size: {float(page_media_box.width)}x{float(page_media_box.height)}")
                 
                 chunks.append((writer, metadata))
             
@@ -202,7 +245,7 @@ class ChunkingService:
     def _create_metadata_page(self, metadata: Dict[str, Any]):
         """
         Create a PDF page with metadata information in custom wide format for single-line URIs.
-        Enhanced version from metadata_fixer.py with custom wide page (1000x500).
+        EXACT COPY from metadata_fixer.py create_corrected_metadata_page method.
         
         Args:
             metadata: Dictionary containing metadata
@@ -212,9 +255,9 @@ class ChunkingService:
         """
         try:
             packet = BytesIO()
-            # Custom page size: 1000x500 points (width x height)
-            # This is wider than standard landscape to fit long URIs
-            custom_page_size = (1000, 500)  # Custom size in points
+            # Custom page size: wider and shorter to fit S3 URIs on single line
+            # Standard landscape letter is 792x612, we'll use 1000x500 (much wider, shorter)
+            custom_page_size = (1000, 500)  # (width, height) in points
             c = canvas.Canvas(packet, pagesize=custom_page_size)
             
             # Log the page size for debugging
@@ -223,11 +266,11 @@ class ChunkingService:
             # Calculate positions based on custom page dimensions
             page_width, page_height = custom_page_size
             
-            # Title - centered for custom wide page (1000px width) - EXACT MATCH TO metadata_fixer.py
+            # Title - centered for custom wide page (1000px width)
             c.setFont("Helvetica-Bold", 16)
             c.drawString(400, 460, "Document Metadata")
             
-            # Table setup - optimized for wide custom page (1000px width) - EXACT MATCH TO metadata_fixer.py
+            # Table setup - optimized for wide custom page (1000px width)
             c.setFont("Helvetica", 10)
             y_start = 430
             row_height = 22
@@ -275,7 +318,7 @@ class ChunkingService:
                     # Draw field name
                     c.drawString(col1_x, y, f"{label}:")
                     
-                    # Handle long values - custom wide page can fit S3 URIs on single line - EXACT MATCH TO metadata_fixer.py
+                    # Handle long values - custom wide page can fit S3 URIs on single line
                     if len(value_str) > 120:  # Very high limit for wide page
                         # Only break extremely long values (longer than typical S3 URIs)
                         max_chars = 160  # Much more characters per line for wide page
@@ -304,7 +347,7 @@ class ChunkingService:
             # Draw table border
             c.rect(col1_x - 10, y, table_width + 20, y_start - y + 20)
             
-            # Add timestamp in IST - positioned for custom wide page - EXACT MATCH TO metadata_fixer.py
+            # Add timestamp in IST - positioned for custom wide page
             c.setFont("Helvetica", 8)
             ist = timezone(timedelta(hours=5, minutes=30))  # IST is UTC+5:30
             current_time_ist = datetime.now(ist)
