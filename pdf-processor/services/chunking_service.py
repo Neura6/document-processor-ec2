@@ -201,7 +201,7 @@ class ChunkingService:
 
     def _create_metadata_page(self, metadata: Dict[str, Any]) -> PyPDF2.PageObject:
         """
-        Create a PDF page with metadata information in structured table format.
+        Create a PDF page with metadata information in wide custom format for single-line URIs.
         
         Args:
             metadata: Dictionary containing metadata
@@ -210,31 +210,38 @@ class ChunkingService:
             PyPDF2 PageObject with metadata
         """
         try:
-            # Use PyMuPDF (fitz) to create landscape page - more reliable than ReportLab
-            import fitz  # PyMuPDF
+            # Use ReportLab to match metadata_fixer.py exactly
+            packet = BytesIO()
+            # Custom page size: wider and shorter to fit S3 URIs on single line
+            # Standard landscape letter is 792x612, we'll use 1000x500 (much wider, shorter)
+            custom_page_size = (1000, 500)  # (width, height) in points
+            c = canvas.Canvas(packet, pagesize=custom_page_size)
             
-            # Create a new PDF document with landscape page
-            doc = fitz.open()  # Create new PDF
-            landscape_page = doc.new_page(width=792, height=612)  # Landscape: 792x612
+            # Title - centered for custom wide page (1000px width)
+            c.setFont("Helvetica-Bold", 16)
+            c.drawString(400, 460, "Document Metadata")
             
-            self.logger.info(f"Created landscape page using PyMuPDF: 792x612")
-            
-            # Add metadata table to the landscape page using PyMuPDF
-            y_pos = 80  # Start position from top
-            row_height = 25
+            # Table setup - optimized for wide custom page (1000px width)
+            c.setFont("Helvetica", 10)
+            y_start = 430
+            row_height = 22
             col1_x = 50   # Field name column
-            col2_x = 200  # Field value column
+            col2_x = 170  # Field value column (plenty of space)
+            table_width = 900  # Very wide table for custom page
             
-            # Add table header
-            landscape_page.insert_text((col1_x, y_pos), "Field", fontsize=12, color=(0, 0, 0))
-            landscape_page.insert_text((col2_x, y_pos), "Value", fontsize=12, color=(0, 0, 0))
+            # Draw table header
+            c.setFont("Helvetica-Bold", 10)
+            c.drawString(col1_x, y_start, "Field")
+            c.drawString(col2_x, y_start, "Value")
             
             # Draw header line
-            landscape_page.draw_line((col1_x, y_pos + 10), (col1_x + 650, y_pos + 10))
+            c.line(col1_x, y_start - 5, col1_x + table_width, y_start - 5)
             
-            y_pos += row_height
+            # Draw table rows
+            c.setFont("Helvetica", 10)
+            y = y_start - row_height
             
-            self.logger.info(f"Added table header to landscape page")
+            self.logger.info(f"Created custom wide page using ReportLab: 1000x500")
             
             # Define field display order and labels
             field_labels = {
@@ -257,46 +264,55 @@ class ChunkingService:
                 'complexity': 'Complexity'
             }
             
-            # Add metadata fields using PyMuPDF
+            # Add metadata fields - exactly matching metadata_fixer.py logic
             for key, label in field_labels.items():
                 if key in metadata:
                     value_str = str(metadata[key]) if metadata[key] is not None else "None"
                     
-                    # Add field name
-                    landscape_page.insert_text((col1_x, y_pos), f"{label}:", fontsize=10, color=(0, 0, 0))
+                    # Draw field name
+                    c.drawString(col1_x, y, f"{label}:")
                     
-                    # Special handling for URIs to prevent spaces when extracted
-                    if key == 'chunk_s3_uri' or 'uri' in key.lower():
-                        # Use full landscape width for URIs (792 - 200 - 50 margins)
-                        available_width = 540  # Full landscape width available
+                    # Handle long values - custom wide page can fit S3 URIs on single line
+                    if len(value_str) > 180:  # Very high limit for wide page
+                        # Only break extremely long values (longer than typical S3 URIs)
+                        max_chars = 180  # Much more characters per line for wide page
+                        lines = []
+                        for i in range(0, len(value_str), max_chars):
+                            lines.append(value_str[i:i+max_chars])
                         
-                        # Start with readable font size for landscape
-                        font_size = 8
+                        # Draw first line
+                        c.drawString(col2_x, y, lines[0])
                         
-                        # Calculate text width (approximate)
-                        text_width = len(value_str) * font_size * 0.6  # Rough estimate
-                        
-                        # Reduce font size until it fits in one line
-                        while text_width > available_width and font_size > 4:
-                            font_size -= 1
-                            text_width = len(value_str) * font_size * 0.6
-                        
-                        self.logger.info(f"URI font size: {font_size}, estimated width: {text_width}, available: {available_width}")
-                        
-                        # Add the URI directly on landscape page
-                        landscape_page.insert_text((col2_x, y_pos), value_str, fontsize=font_size, color=(0, 0, 0))
+                        # Draw additional lines with proper spacing
+                        for i, line in enumerate(lines[1:], 1):
+                            y -= 14  # Slightly more spacing for readability
+                            c.drawString(col2_x, y, line)
                     else:
-                        # Add short values normally
-                        landscape_page.insert_text((col2_x, y_pos), value_str, fontsize=10, color=(0, 0, 0))
+                        # Draw values normally (most S3 URIs will fit on single line)
+                        c.drawString(col2_x, y, value_str)
                     
-                    y_pos += row_height
+                    y -= row_height
+                    
+                    # Add separator line between rows
+                    c.setStrokeColorRGB(0.8, 0.8, 0.8)
+                    c.line(col1_x, y + 10, col1_x + table_width, y + 10)
+                    c.setStrokeColorRGB(0, 0, 0)  # Reset to black
             
-            # Convert PyMuPDF document to bytes
-            pdf_bytes = doc.tobytes()
-            doc.close()
+            # Draw table border
+            c.rect(col1_x - 10, y, table_width + 20, y_start - y + 20)
             
-            # Convert to PyPDF2 format
-            packet = BytesIO(pdf_bytes)
+            # Add timestamp in IST - positioned for custom wide page
+            c.setFont("Helvetica", 8)
+            ist = timezone(timedelta(hours=5, minutes=30))  # IST is UTC+5:30
+            current_time_ist = datetime.now(ist)
+            c.drawString(col1_x, y - 30, f"Generated: {current_time_ist.strftime('%Y-%m-%d %H:%M:%S IST')}")
+            c.drawString(col1_x + 500, y - 30, f"Format: Wide Metadata Page (1000x500) - Single Line URIs")
+            
+            c.showPage()
+            c.save()
+            packet.seek(0)
+            
+            # Convert to PDF page
             metadata_pdf = PyPDF2.PdfReader(packet)
             final_page = metadata_pdf.pages[0]
             
@@ -304,15 +320,15 @@ class ChunkingService:
             media_box = final_page.mediabox
             width = float(media_box.width)
             height = float(media_box.height)
-            self.logger.info(f"Final PyMuPDF landscape page dimensions: {width}x{height}")
+            self.logger.info(f"Final ReportLab wide page dimensions: {width}x{height}")
             
             return final_page
             
         except Exception as e:
             self.logger.error(f"Error creating metadata page: {e}")
-            # Return empty page if metadata creation fails - also use landscape
+            # Return empty page if metadata creation fails - use same wide format
             packet = BytesIO()
-            c = canvas.Canvas(packet, pagesize=(792, 612))  # Landscape fallback too
+            c = canvas.Canvas(packet, pagesize=(1000, 500))  # Wide page fallback
             c.showPage()
             c.save()
             packet.seek(0)
