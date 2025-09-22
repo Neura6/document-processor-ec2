@@ -122,11 +122,11 @@ class MetadataPageService:
             c.rect(col1_x - 10, y, table_width + 20, y_start - y + 20)
             
             # Add timestamp in IST - positioned for custom wide page
-            c.setFont("Helvetica", 8)
-            ist = timezone(timedelta(hours=5, minutes=30))  # IST is UTC+5:30
-            current_time_ist = datetime.now(ist)
-            c.drawString(col1_x, y - 30, f"Generated: {current_time_ist.strftime('%Y-%m-%d %H:%M:%S IST')}")
-            c.drawString(col1_x + 500, y - 30, f"Format: Wide Metadata Page (1000x500) - Single Line URIs")
+            # c.setFont("Helvetica", 8)
+            # ist = timezone(timedelta(hours=5, minutes=30))  # IST is UTC+5:30
+            # current_time_ist = datetime.now(ist)
+            # c.drawString(col1_x, y - 30, f"Generated: {current_time_ist.strftime('%Y-%m-%d %H:%M:%S IST')}")
+            # c.drawString(col1_x + 500, y - 30, f"Format: Wide Metadata Page (1000x500) - Single Line URIs")
             
             c.showPage()
             c.save()
