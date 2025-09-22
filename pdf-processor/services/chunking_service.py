@@ -40,7 +40,7 @@ class ChunkingService:
         metadata = {'standard_type': folder}
 
         # Ensure enough parts exist before accessing indices - matching Lambda logic
-        if folder in ['Auditing-global', 'Finance Tools', 'GIFT City']:
+        if folder in ['Auditing-global', 'Finance Tools', 'GIFT City','test']:
             if len(parts) > 1:
                 if len(parts) > 2:
                     metadata['Standard_type'] = parts[1]  # Note: inconsistent key capitalization

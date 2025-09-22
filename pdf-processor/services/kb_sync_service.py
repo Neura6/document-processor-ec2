@@ -44,7 +44,6 @@ class KBMappingConfig:
     'usecase-reports-4': {'id': 'WHF3OXB1MQ', 'data_source_id': 'CN63WXZKZW'},
     'commercial-case-laws': {'id': 'DQ6AIARMNQ', 'data_source_id': 'NXNCQID5NX'},
     'citation-test':{'id':'VDAPHQ1JTN','data_source_id':'EAVX8UD6RY'}
-
 }
     
     CHUNKED_BUCKET = 'chunked-rules-repository'
