@@ -3,7 +3,7 @@ PDF Chunking Service
 Handles PDF chunking into individual pages with metadata.
 """
 
-import PyPDF2
+from PyPDF2 import PdfReader, PdfWriter
 import os
 from io import BytesIO
 import logging
@@ -144,7 +144,7 @@ class ChunkingService:
 
         return metadata
        
-    def create_metadata_page(self, metadata: Dict[str, Any]) -> PyPDF2.PageObject:
+    def create_metadata_page(self, metadata: Dict[str, Any]):
         """
         Create a PDF page containing metadata exactly as done in Lambda's create_metadata_page_content
         
@@ -156,7 +156,7 @@ class ChunkingService:
         """
         return self._create_metadata_page(metadata)
     
-    def chunk_pdf(self, pdf_stream: BytesIO, s3_key: str, cleaned_key: str = None) -> List[Tuple[PyPDF2.PdfWriter, Dict[str, Any]]]:
+    def chunk_pdf(self, pdf_stream: BytesIO, s3_key: str, cleaned_key: str = None) -> List[Tuple[PdfWriter, Dict[str, Any]]]:
         """
         Split PDF into individual pages with comprehensive metadata.
         
@@ -170,7 +170,7 @@ class ChunkingService:
         """
         try:
             pdf_stream.seek(0)
-            reader = PyPDF2.PdfReader(pdf_stream)
+            reader = PdfReader(pdf_stream)
             
             if reader.is_encrypted:
                 reader.decrypt('')
@@ -179,7 +179,7 @@ class ChunkingService:
             chunks = []
             
             for page_num in range(total_pages):
-                writer = PyPDF2.PdfWriter()
+                writer = PdfWriter()
                 
                 # Get enhanced metadata for this specific page
                 metadata = self.extract_metadata(s3_key, page_num + 1, total_pages, cleaned_key)
@@ -199,7 +199,7 @@ class ChunkingService:
             self.logger.error(f"Error chunking PDF: {e}")
             return []
 
-    def _create_metadata_page(self, metadata: Dict[str, Any]) -> PyPDF2.PageObject:
+    def _create_metadata_page(self, metadata: Dict[str, Any]):
         """
         Create a PDF page with metadata information in custom wide format for single-line URIs.
         Enhanced version from metadata_fixer.py with custom wide page (1000x500).
@@ -315,8 +315,8 @@ class ChunkingService:
             c.save()
             packet.seek(0)
             
-            # Convert to PDF page
-            metadata_pdf = PyPDF2.PdfReader(packet)
+            # Convert to PDF page - EXACT MATCH TO metadata_fixer.py
+            metadata_pdf = PdfReader(packet)
             final_page = metadata_pdf.pages[0]
             
             # Log success with actual dimensions
@@ -335,4 +335,4 @@ class ChunkingService:
             c.showPage()
             c.save()
             packet.seek(0)
-            return PyPDF2.PdfReader(packet).pages[0]
+            return PdfReader(packet).pages[0]
