@@ -220,7 +220,7 @@ class ChunkingService:
             # Log the page size for debugging
             self.logger.info(f"Created PDF with page size: {custom_page_size}")
             
-            # Calculate positions based on landscape dimensions
+            # Calculate positions based on custom page dimensions
             page_width, page_height = custom_page_size
             
             # Title - centered for custom page
@@ -312,12 +312,11 @@ class ChunkingService:
             ist = timezone(timedelta(hours=5, minutes=30))  # IST is UTC+5:30
             current_time_ist = datetime.now(ist)
             timestamp = f"Generated: {current_time_ist.strftime('%Y-%m-%d %H:%M:%S IST')}"
-            format_text = f"Page Size: {int(page_width)}x{int(page_height)} (Landscape)"
+            format_text = f"Page Size: {int(page_width)}x{int(page_height)} (Custom Wide)"
             
             # Position timestamp at bottom left
             c.drawString(col1_x, 30, timestamp)
             # Position format info at bottom right
-            format_text = f"Page Size: {int(page_width)}x{int(page_height)} (Custom Wide)"
             format_x = page_width - c.stringWidth(format_text, "Helvetica", 8) - 20  # Reduced right margin
             c.drawString(format_x, 30, format_text)
             
@@ -333,7 +332,7 @@ class ChunkingService:
             media_box = final_page.mediabox
             actual_width = float(media_box.width)
             actual_height = float(media_box.height)
-            self.logger.info(f"Created landscape metadata page - Size: {actual_width}x{actual_height}")
+            self.logger.info(f"Created custom wide metadata page - Size: {actual_width}x{actual_height}")
             
             return final_page
             
