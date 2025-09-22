@@ -201,7 +201,8 @@ class ChunkingService:
 
     def _create_metadata_page(self, metadata: Dict[str, Any]) -> PyPDF2.PageObject:
         """
-        Create a PDF page with metadata information in wide custom format for single-line URIs.
+        Create a PDF page with metadata information in custom wide format for single-line URIs.
+        Enhanced version from metadata_fixer.py with custom wide page (1000x500).
         
         Args:
             metadata: Dictionary containing metadata
@@ -210,7 +211,6 @@ class ChunkingService:
             PyPDF2 PageObject with metadata
         """
         try:
-            # Use ReportLab to match metadata_fixer.py exactly
             packet = BytesIO()
             # Custom page size: wider and shorter to fit S3 URIs on single line
             # Standard landscape letter is 792x612, we'll use 1000x500 (much wider, shorter)
@@ -241,9 +241,7 @@ class ChunkingService:
             c.setFont("Helvetica", 10)
             y = y_start - row_height
             
-            self.logger.info(f"Created custom wide page using ReportLab: 1000x500")
-            
-            # Define field display order and labels
+            # Define field display order and labels - enhanced from metadata_fixer
             field_labels = {
                 'document_name': 'Document Name',
                 'processed_file_path': 'Processed File Path', 
@@ -264,7 +262,6 @@ class ChunkingService:
                 'complexity': 'Complexity'
             }
             
-            # Add metadata fields - exactly matching metadata_fixer.py logic
             for key, label in field_labels.items():
                 if key in metadata:
                     value_str = str(metadata[key]) if metadata[key] is not None else "None"
@@ -273,9 +270,9 @@ class ChunkingService:
                     c.drawString(col1_x, y, f"{label}:")
                     
                     # Handle long values - custom wide page can fit S3 URIs on single line
-                    if len(value_str) > 180:  # Very high limit for wide page
+                    if len(value_str) > 120:  # Very high limit for wide page
                         # Only break extremely long values (longer than typical S3 URIs)
-                        max_chars = 180  # Much more characters per line for wide page
+                        max_chars = 160  # Much more characters per line for wide page
                         lines = []
                         for i in range(0, len(value_str), max_chars):
                             lines.append(value_str[i:i+max_chars])
@@ -316,19 +313,16 @@ class ChunkingService:
             metadata_pdf = PyPDF2.PdfReader(packet)
             final_page = metadata_pdf.pages[0]
             
-            # Verify dimensions
-            media_box = final_page.mediabox
-            width = float(media_box.width)
-            height = float(media_box.height)
-            self.logger.info(f"Final ReportLab wide page dimensions: {width}x{height}")
+            # Log success
+            self.logger.info(f"Created custom wide metadata page (1000x500) with single-line URIs")
             
             return final_page
             
         except Exception as e:
             self.logger.error(f"Error creating metadata page: {e}")
-            # Return empty page if metadata creation fails - use same wide format
+            # Return empty page if metadata creation fails - use custom wide format for fallback too
             packet = BytesIO()
-            c = canvas.Canvas(packet, pagesize=(1000, 500))  # Wide page fallback
+            c = canvas.Canvas(packet, pagesize=(1000, 500))  # Custom wide fallback
             c.showPage()
             c.save()
             packet.seek(0)
