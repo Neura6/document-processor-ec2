@@ -61,7 +61,7 @@ class MetadataFixer:
         try:
             if hasattr(self, 's3_service'):
                 # Use orchestrator's S3 service
-                response = self.s3_service.s3_client.get_object(Bucket=self.bucket_name, Key=s3_key)
+                response = self.s3_service.s3.get_object(Bucket=self.bucket_name, Key=s3_key)
             else:
                 # Use standalone S3 client
                 response = self.s3_client.get_object(Bucket=self.bucket_name, Key=s3_key)
@@ -314,7 +314,7 @@ class MetadataFixer:
             # Download original PDF
             if hasattr(self, 's3_service'):
                 # Use orchestrator's S3 service
-                response = self.s3_service.s3_client.get_object(Bucket=self.bucket_name, Key=s3_key)
+                response = self.s3_service.s3.get_object(Bucket=self.bucket_name, Key=s3_key)
             else:
                 # Use standalone S3 client
                 response = self.s3_client.get_object(Bucket=self.bucket_name, Key=s3_key)
