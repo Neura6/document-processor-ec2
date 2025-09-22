@@ -203,9 +203,9 @@ class MetadataFixer:
                     c.drawString(col1_x, y, f"{label}:")
                     
                     # Handle long values - custom wide page can fit S3 URIs on single line
-                    if len(value_str) > 120:  # Very high limit for wide page
+                    if len(value_str) > 180:  # Very high limit for wide page
                         # Only break extremely long values (longer than typical S3 URIs)
-                        max_chars = 160  # Much more characters per line for wide page
+                        max_chars = 180  # Much more characters per line for wide page
                         lines = []
                         for i in range(0, len(value_str), max_chars):
                             lines.append(value_str[i:i+max_chars])
@@ -232,11 +232,11 @@ class MetadataFixer:
             c.rect(col1_x - 10, y, table_width + 20, y_start - y + 20)
             
             # Add timestamp in IST - positioned for custom wide page
-            c.setFont("Helvetica", 8)
-            ist = timezone(timedelta(hours=5, minutes=30))  # IST is UTC+5:30
-            current_time_ist = datetime.now(ist)
-            c.drawString(col1_x, y - 30, f"Generated: {current_time_ist.strftime('%Y-%m-%d %H:%M:%S IST')}")
-            c.drawString(col1_x + 500, y - 30, f"Format: Wide Metadata Page (1000x500) - Single Line URIs")
+            # c.setFont("Helvetica", 8)
+            # ist = timezone(timedelta(hours=5, minutes=30))  # IST is UTC+5:30
+            # current_time_ist = datetime.now(ist)
+            # c.drawString(col1_x, y - 30, f"Generated: {current_time_ist.strftime('%Y-%m-%d %H:%M:%S IST')}")
+            # c.drawString(col1_x + 500, y - 30, f"Format: Wide Metadata Page (1000x500) - Single Line URIs")
             
             c.showPage()
             c.save()
@@ -325,7 +325,7 @@ class MetadataFixer:
             
             if len(original_reader.pages) < 2:
                 result.update({
-                    'status': 'erraor',
+                    'status': 'error',
                     'action_taken': 'PDF has less than 2 pages',
                     'error': 'Cannot fix single-page PDF'
                 })
