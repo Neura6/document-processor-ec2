@@ -19,7 +19,7 @@ class MetadataPageService:
     def __init__(self):
         self.logger = logging.getLogger(__name__)
     
-    def create_corrected_metadata_page(self, metadata: Dict[str, Any]):
+    def create_corrected_metadata_page(self, metadata: Dict[str, Any]) -> bytes:
         """
         Create a new metadata page with corrected chunk_s3_uri in table format (custom wide format).
         EXACT COPY from metadata_fixer.py create_corrected_metadata_page method.
@@ -31,7 +31,7 @@ class MetadataPageService:
             PyPDF2 PageObject with metadata
         """
         try:
-            packet = io.BytesIO()
+            packet = BytesIO()
             # Custom page size: wider and shorter to fit S3 URIs on single line
             # Standard landscape letter is 792x612, we'll use 1000x500 (much wider, shorter)
             custom_page_size = (1000, 500)  # (width, height) in points
