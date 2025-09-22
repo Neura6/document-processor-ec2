@@ -15,6 +15,7 @@ from datetime import datetime, timezone, timedelta
 from PyPDF2 import PdfReader, PdfWriter
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter, landscape
+from reportlab.lib.utils import simpleSplit
 from threading import Lock
 import urllib3
 from typing import Dict, List, Tuple, Any
@@ -212,24 +213,17 @@ class MetadataFixer:
                     # Draw field name
                     c.drawString(col1_x, y, f"{label}:")
                     
-                    # Handle long values - custom wide page can fit S3 URIs on single line
-                    if len(value_str) > 180:  # Very high limit for wide page
-                        # Only break extremely long values (longer than typical S3 URIs)
-                        max_chars = 180  # Much more characters per line for wide page
-                        lines = []
-                        for i in range(0, len(value_str), max_chars):
-                            lines.append(value_str[i:i+max_chars])
-                        
-                        # Draw first line
-                        c.drawString(col2_x, y, lines[0])
-                        
-                        # Draw additional lines with proper spacing
-                        for i, line in enumerate(lines[1:], 1):
-                            y -= 14  # Slightly more spacing for readability
-                            c.drawString(col2_x, y, line)
-                    else:
-                        # Draw values normally (most S3 URIs will fit on single line)
-                        c.drawString(col2_x, y, value_str)
+                    # Use simpleSplit for intelligent text wrapping
+                    # Calculate available width (table_width - field name column width - padding)
+                    max_width = table_width - (col2_x - col1_x) - 20  # ~800 pixels available
+                    
+                    # Split text intelligently using reportlab's simpleSplit
+                    lines = simpleSplit(value_str, "Helvetica", 10, max_width)
+                    
+                    # Draw all lines with proper spacing
+                    for line in lines:
+                        c.drawString(col2_x, y, line)
+                        y -= 14  # Move to next line
                     
                     y -= row_height
                     
