@@ -59,10 +59,20 @@ class MetadataFixer:
     def extract_metadata_from_first_page(self, s3_key: str) -> Dict[str, Any]:
         """Extract metadata from the first page of a PDF file."""
         try:
+            logger.info(f"🔍 DEBUG: hasattr s3_service: {hasattr(self, 's3_service')}")
             if hasattr(self, 's3_service'):
-                # Use orchestrator's S3 service
-                response = self.s3_service.s3.get_object(Bucket=self.bucket_name, Key=s3_key)
+                logger.info(f"🔍 DEBUG: s3_service type: {type(self.s3_service)}")
+                logger.info(f"🔍 DEBUG: s3_service dir: {[attr for attr in dir(self.s3_service) if not attr.startswith('_')]}")
+                try:
+                    # Use orchestrator's S3 service
+                    logger.info(f"🔍 DEBUG: Attempting s3_service.s3.get_object...")
+                    response = self.s3_service.s3.get_object(Bucket=self.bucket_name, Key=s3_key)
+                    logger.info(f"🔍 DEBUG: S3 get_object successful!")
+                except Exception as e:
+                    logger.error(f"🔍 DEBUG: S3 get_object failed: {e}")
+                    raise
             else:
+                logger.info(f"🔍 DEBUG: Using standalone s3_client")
                 # Use standalone S3 client
                 response = self.s3_client.get_object(Bucket=self.bucket_name, Key=s3_key)
             pdf_content = response['Body'].read()
