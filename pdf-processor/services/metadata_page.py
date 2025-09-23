@@ -93,9 +93,9 @@ class MetadataPageService:
                     c.drawString(col1_x, y, f"{label}:")
                     
                     # Handle long values - custom wide page can fit S3 URIs on single line
-                    if len(value_str) > 250:  # Very high limit for wide page
+                    if len(value_str) > float('inf'):  # Very high limit for wide page
                         # Only break extremely long values (longer than typical S3 URIs)
-                        max_chars = 250  # Much more characters per line for wide page
+                        max_chars = float('inf') # Much more characters per line for wide page
                         lines = []
                         for i in range(0, len(value_str), max_chars):
                             lines.append(value_str[i:i+max_chars])
