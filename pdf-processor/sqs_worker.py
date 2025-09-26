@@ -16,7 +16,7 @@ from urllib.parse import unquote_plus
 from services.orchestrator import Orchestrator
 from services.filename_service import FilenameService
 from services.sqs_monitor import SQSMonitor
-from monitoring.metrics import start_metrics_server, messages_processed
+from monitoring.metrics_collector import metrics, start_metrics_server
 
 # Configure logging
 logging.basicConfig(
@@ -221,7 +221,7 @@ class SQSWorker:
                 QueueUrl=self.queue_url,
                 MaxNumberOfMessages=max_messages,
                 WaitTimeSeconds=10,
-                VisibilityTimeout=self.visibility_timeout
+                VisibilityTimeoutSeconds=self.visibility_timeout
             )
             return response.get('Messages', [])
         except Exception as e:

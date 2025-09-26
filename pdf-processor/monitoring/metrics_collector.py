@@ -12,43 +12,50 @@ class DocumentMetrics:
     """Centralized metrics collection for document processing pipeline."""
     
     def __init__(self):
-        # S3 Upload Metrics
-        self.s3_uploads_total = Counter('document_s3_uploads_total', 'Total files uploaded to S3', ['bucket', 'status'])
-        self.s3_upload_duration = Histogram('document_s3_upload_duration_seconds', 'Time to upload file to S3')
+        # Processing metrics (matching metrics.py)
+        self.files_processed_total = Counter('pdf_files_processed_total', 'Total files processed', ['status', 'folder'])
+        self.processing_duration = Histogram('pdf_processing_duration_seconds', 'Processing time per file', ['step'])
+        self.processing_errors = Counter('pdf_processing_errors_total', 'Total processing errors', ['error_type', 'step'])
         
-        # SQS Metrics
-        self.sqs_messages_total = Counter('document_sqs_messages_total', 'Total messages processed from SQS', ['status'])
-        self.sqs_message_age = Histogram('document_sqs_message_age_seconds', 'Age of messages in SQS')
+        # S3 metrics (matching metrics.py)
+        self.s3_uploads_total = Counter('s3_uploads_total', 'Total S3 uploads', ['bucket', 'status'])
+        self.s3_upload_duration = Histogram('s3_upload_duration_seconds', 'S3 upload duration')
         
-        # Format Conversion Metrics
+        # KB Sync metrics (matching metrics.py)
+        self.kb_sync_total = Counter('kb_sync_total', 'Total KB sync attempts', ['folder', 'status'])
+        self.kb_sync_duration = Histogram('kb_sync_duration_seconds', 'KB sync duration', ['folder'])
+        self.kb_mapping_found = Gauge('kb_mapping_found', 'KB mapping found for folder', ['folder'])
+        
+        # File tracking metrics - YOUR NEW REQUIREMENTS
+        self.files_uploaded_total = Counter('files_uploaded_total', 'Total files uploaded to source bucket', ['folder'])
+        self.chunks_created_total = Counter('chunks_created_total', 'Total PDF chunks created', ['folder'])
+        self.files_pending_sync = Gauge('files_pending_kb_sync', 'Files waiting for KB sync', ['folder'])
+        self.kb_sync_success_total = Counter('kb_sync_success_total', 'Successfully synced files to KB', ['folder'])
+        
+        # Real-time SQS Queue metrics
+        self.sqs_messages_available = Gauge('sqs_messages_available', 'Messages currently in SQS queue')
+        self.sqs_messages_in_flight = Gauge('sqs_messages_in_flight', 'Messages being processed by EC2')
+        self.messages_processed = Counter('sqs_messages_processed_total', 'Total SQS messages processed')
+        
+        # Real-time Processing Stage metrics
+        self.files_in_conversion = Gauge('files_in_conversion', 'Files currently being converted')
+        self.files_in_ocr = Gauge('files_in_ocr', 'Files currently in OCR processing')
+        self.files_in_chunking = Gauge('files_in_chunking', 'Files currently being chunked')
+        self.files_in_kb_sync = Gauge('files_in_kb_sync', 'Files currently syncing to KB')
+        
+        # Pipeline overview
+        self.pipeline_stage_files = Gauge('pipeline_stage_files', 'Files in each pipeline stage', ['stage'])
+        
+        # System metrics
+        self.active_processing_jobs = Gauge('active_processing_jobs', 'Number of active processing jobs')
+        self.processing_rate = Gauge('processing_rate_per_hour', 'Processing rate per hour')
+        
+        # Additional detailed metrics for advanced monitoring
         self.conversions_total = Counter('document_conversions_total', 'Total format conversions', ['from_format', 'to_format', 'status'])
         self.conversion_duration = Histogram('document_conversion_duration_seconds', 'Time to convert file format')
-        
-        # OCR Metrics
         self.ocr_jobs_total = Counter('document_ocr_jobs_total', 'Total OCR jobs processed', ['status'])
         self.ocr_duration = Histogram('document_ocr_duration_seconds', 'Time for OCR processing')
-        
-        # Chunking Metrics
-        self.chunks_created_total = Counter('document_chunks_created_total', 'Total chunks created', ['file_type'])
         self.chunking_duration = Histogram('document_chunking_duration_seconds', 'Time to chunk document')
-        
-        # S3 Output Metrics
-        self.s3_output_uploads_total = Counter('document_s3_output_uploads_total', 'Total uploads to chunked repository', ['status'])
-        self.s3_output_duration = Histogram('document_s3_output_duration_seconds', 'Time to upload chunks')
-        
-        # Knowledge Base Sync Metrics
-        self.kb_sync_total = Counter('document_kb_sync_total', 'Total KB sync operations', ['status'])
-        self.kb_sync_duration = Histogram('document_kb_sync_duration_seconds', 'Time to sync to KB')
-        
-        # Overall Processing
-        self.files_processed_total = Counter('document_files_processed_total', 'Total files processed', ['status'])
-        self.processing_duration = Histogram('document_processing_duration_seconds', 'Total processing time per file')
-        
-        # Active Jobs
-        self.active_jobs = Gauge('document_active_processing_jobs', 'Currently active processing jobs')
-        
-        # Error Tracking
-        self.errors_total = Counter('document_errors_total', 'Total processing errors', ['stage', 'error_type'])
         
     def record_s3_upload(self, bucket: str, duration: float, success: bool = True):
         """Record S3 upload metrics."""
@@ -70,7 +77,7 @@ class DocumentMetrics:
         
     def record_chunking(self, chunk_count: int, duration: float, file_type: str = 'pdf'):
         """Record chunking metrics."""
-        self.chunks_created_total.labels(file_type=file_type).inc(chunk_count)
+        # Note: This method is for backward compatibility
         self.chunking_duration.observe(duration)
         
     def record_s3_output_upload(self, duration: float, success: bool = True):
@@ -97,11 +104,42 @@ class DocumentMetrics:
         
     def increment_active_jobs(self):
         """Increment active jobs counter."""
-        self.active_jobs.inc()
+        self.active_processing_jobs.inc()
         
     def decrement_active_jobs(self):
         """Decrement active jobs counter."""
-        self.active_jobs.dec()
+        self.active_processing_jobs.dec()
+    
+    # NEW HELPER METHODS FOR FILE TRACKING
+    def record_file_uploaded(self, folder: str):
+        """Record a file uploaded to source bucket"""
+        self.files_uploaded_total.labels(folder=folder).inc()
+    
+    def record_chunks_created(self, folder: str, chunk_count: int):
+        """Record PDF chunks created"""
+        self.chunks_created_total.labels(folder=folder).inc(chunk_count)
+    
+    def record_kb_sync_success(self, folder: str):
+        """Record successful KB sync"""
+        self.kb_sync_success_total.labels(folder=folder).inc()
+    
+    def update_pending_sync_count(self, folder: str, count: int):
+        """Update the count of files pending KB sync"""
+        self.files_pending_sync.labels(folder=folder).set(count)
+    
+    def record_processing_time(self, step_name: str, duration: float):
+        """Record processing time for a specific step"""
+        self.processing_duration.labels(step=step_name).observe(duration)
+    
+    def record_file_processed(self, status: str, folder: str):
+        """Record a file processing completion"""
+        self.files_processed_total.labels(status=status, folder=folder).inc()
+    
+    def record_kb_sync_attempt(self, folder: str, status: str, duration: float = None):
+        """Record KB sync attempt"""
+        self.kb_sync_total.labels(folder=folder, status=status).inc()
+        if duration:
+            self.kb_sync_duration.labels(folder=folder).observe(duration)
 
 # Global metrics instance
 metrics = DocumentMetrics()

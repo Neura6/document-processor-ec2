@@ -8,7 +8,7 @@ import time
 import threading
 import logging
 from typing import Optional
-from monitoring.metrics import sqs_messages_available, sqs_messages_in_flight
+from monitoring.metrics_collector import metrics
 from config import AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
 
 class SQSMonitor:
@@ -71,11 +71,11 @@ class SQSMonitor:
             
             # Messages available in queue
             messages_available = int(attributes.get('ApproximateNumberOfMessages', 0))
-            sqs_messages_available.set(messages_available)
+            metrics.sqs_messages_available.set(messages_available)
             
             # Messages in flight (being processed)
             messages_in_flight = int(attributes.get('ApproximateNumberOfMessagesNotVisible', 0))
-            sqs_messages_in_flight.set(messages_in_flight)
+            metrics.sqs_messages_in_flight.set(messages_in_flight)
             
             self.logger.debug(f"Queue metrics - Available: {messages_available}, In-flight: {messages_in_flight}")
             

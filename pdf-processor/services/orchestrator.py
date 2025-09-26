@@ -19,21 +19,7 @@ from services.s3_service import S3Service
 from services.conversion_service import ConversionService
 from prometheus_client import Counter, Histogram, Gauge
 from config import AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, SOURCE_BUCKET, CHUNKED_BUCKET
-from monitoring.metrics import (
-    files_in_conversion, files_in_ocr, files_in_chunking, files_in_kb_sync,
-    pipeline_stage_files, sqs_messages_in_flight
-)
-
-# Document Pipeline Metrics - EXACT MATCHES FOR DASHBOARD
-s3_uploads_total = Counter('document_s3_uploads_total', 'Total files uploaded to S3', ['bucket', 'status'])
-document_conversions_total = Counter('document_conversions_total', 'Total format conversions', ['from_format', 'to_format', 'status'])
-ocr_processing_total = Counter('document_ocr_processing_total', 'Total OCR processing jobs', ['status'])
-chunks_created_total = Counter('document_chunks_created_total', 'Total chunks created')
-kb_sync_operations_total = Counter('document_kb_sync_operations_total', 'Total KB sync operations', ['status'])
-processing_duration_seconds = Histogram('document_processing_duration_seconds', 'Total processing time per file', ['stage'])
-files_processed_total = Counter('document_files_processed_total', 'Total files processed', ['status'])
-active_processing_jobs = Gauge('document_active_processing_jobs', 'Currently active processing jobs')
-processing_errors_total = Counter('document_processing_errors_total', 'Total processing errors', ['stage', 'error_type'])
+from monitoring.metrics_collector import metrics
 
 class Orchestrator:
     """Main orchestrator for PDF processing workflow."""
@@ -64,11 +50,14 @@ class Orchestrator:
 
     def process_single_file(self, file_key: str) -> bool:
         """Process a single PDF file through the complete pipeline."""
-        active_processing_jobs.inc()
-        sqs_messages_in_flight.inc()
-        pipeline_stage_files.labels(stage='processing').inc()
+        metrics.increment_active_jobs()
+        metrics.sqs_messages_in_flight.inc()
+        metrics.pipeline_stage_files.labels(stage='processing').inc()
         start_time = time.time()
         folder_name = file_key.split('/')[0] if '/' in file_key else 'default'
+        
+        # Record file uploaded to source bucket
+        metrics.record_file_uploaded(folder_name)
         
         try:
             # Handle URL encoding for Arabic characters
@@ -115,48 +104,48 @@ class Orchestrator:
             
             # Format conversion if needed
             if self.conversion_service.is_convertible_format(file_key):
-                files_in_conversion.inc()
-                pipeline_stage_files.labels(stage='conversion').inc()
+                metrics.files_in_conversion.inc()
+                metrics.pipeline_stage_files.labels(stage='conversion').inc()
                 convert_start = time.time()
                 pdf_content, converted_filename = self.conversion_service.convert_to_pdf(file_bytes, file_key)
-                processing_duration_seconds.labels(stage='conversion').observe(time.time() - convert_start)
-                files_in_conversion.dec()
-                pipeline_stage_files.labels(stage='conversion').dec()
+                metrics.record_processing_time('conversion', time.time() - convert_start)
+                metrics.files_in_conversion.dec()
+                metrics.pipeline_stage_files.labels(stage='conversion').dec()
                 
                 if pdf_content is None:
-                    processing_errors_total.labels(stage='conversion', error_type='conversion_failed').inc()
-                    document_conversions_total.labels(from_format=file_ext, to_format='pdf', status='failed').inc()
-                    files_processed_total.labels(status='failed').inc()
+                    metrics.processing_errors.labels(stage='conversion', error_type='conversion_failed').inc()
+                    metrics.conversions_total.labels(from_format=file_ext, to_format='pdf', status='failed').inc()
+                    metrics.record_file_processed('failed', folder_name)
                     return False
                 
-                document_conversions_total.labels(from_format=file_ext, to_format='pdf', status='success').inc()
+                metrics.conversions_total.labels(from_format=file_ext, to_format='pdf', status='success').inc()
                 pdf_stream = io.BytesIO(pdf_content)
                 self.logger.info(f"Successfully converted {file_key} to PDF")
 
             # Watermark removal
             watermark_start = time.time()
             watermark_result = self.watermark_service.remove_watermarks(pdf_stream, file_key)
-            processing_duration_seconds.labels(stage='watermark_removal').observe(time.time() - watermark_start)
+            metrics.record_processing_time('watermark_removal', time.time() - watermark_start)
             
             if watermark_result[0]:
                 pdf_stream = watermark_result[0]
                 self.logger.info("Watermark processing completed")
 
             # OCR processing
-            files_in_ocr.inc()
-            pipeline_stage_files.labels(stage='ocr').inc()
+            metrics.files_in_ocr.inc()
+            metrics.pipeline_stage_files.labels(stage='ocr').inc()
             ocr_start = time.time()
             ocr_result = self.ocr_service.apply_ocr_to_pdf(pdf_stream, file_key)
-            processing_duration_seconds.labels(stage='ocr').observe(time.time() - ocr_start)
-            files_in_ocr.dec()
-            pipeline_stage_files.labels(stage='ocr').dec()
+            metrics.record_processing_time('ocr', time.time() - ocr_start)
+            metrics.files_in_ocr.dec()
+            metrics.pipeline_stage_files.labels(stage='ocr').dec()
             
             if ocr_result[0]:
                 pdf_stream = ocr_result[0]
-                ocr_processing_total.labels(status='success').inc()
+                metrics.ocr_jobs_total.labels(status='success').inc()
                 self.logger.info("OCR processing completed")
             else:
-                ocr_processing_total.labels(status='skipped').inc()
+                metrics.ocr_jobs_total.labels(status='skipped').inc()
 
             # Clean filename while preserving folder structure
             folder_path = '/'.join(file_key.split('/')[:-1]) if '/' in file_key else ''
@@ -178,18 +167,21 @@ class Orchestrator:
             self.logger.info(f"Full cleaned path: {cleaned_key}")
 
             # Chunking
-            files_in_chunking.inc()
-            pipeline_stage_files.labels(stage='chunking').inc()
+            metrics.files_in_chunking.inc()
+            metrics.pipeline_stage_files.labels(stage='chunking').inc()
             chunk_start = time.time()
             chunks = self.chunking_service.chunk_pdf(pdf_stream, file_key, cleaned_key)
-            processing_duration_seconds.labels(stage='chunking').observe(time.time() - chunk_start)
-            chunks_created_total.inc(len(chunks))
-            files_in_chunking.dec()
-            pipeline_stage_files.labels(stage='chunking').dec()
+            metrics.record_processing_time('chunking', time.time() - chunk_start)
+            
+            # Record chunks created - YOUR NEW METRIC!
+            metrics.record_chunks_created(folder_name, len(chunks))
+            
+            metrics.files_in_chunking.dec()
+            metrics.pipeline_stage_files.labels(stage='chunking').dec()
             
             if not chunks:
-                processing_errors_total.labels(stage='chunking', error_type='chunking_failed').inc()
-                files_processed_total.labels(status='failed').inc()
+                metrics.processing_errors.labels(stage='chunking', error_type='chunking_failed').inc()
+                metrics.record_file_processed('failed', folder_name)
                 return False
 
             # Upload chunks to S3
@@ -216,8 +208,8 @@ class Orchestrator:
                 upload_start = time.time()
                 if self.s3_service.put_object(self.CHUNKED_BUCKET, chunk_key, output.getvalue()):
                     success_count += 1
-                    s3_uploads_total.labels(bucket=self.CHUNKED_BUCKET, status='success').inc()
-                    processing_duration_seconds.labels(stage='s3_upload').observe(time.time() - upload_start)
+                    metrics.s3_uploads_total.labels(bucket=self.CHUNKED_BUCKET, status='success').inc()
+                    metrics.record_processing_time('s3_upload', time.time() - upload_start)
                     self.logger.info(f"Uploaded chunk: {chunk_key}")
                     
                     # COMMENTED OUT: Fix metadata page orientation to landscape
@@ -254,10 +246,10 @@ class Orchestrator:
                         self.logger.info(f"Created metadata file for {chunk_key}")
                     except Exception as e:
                         self.logger.error(f"Failed to create metadata file for {chunk_key}: {e}")
-                        processing_errors_total.labels(stage='metadata_creation', error_type='metadata_failed').inc()
+                        metrics.processing_errors.labels(stage='metadata_creation', error_type='metadata_failed').inc()
                 else:
-                    s3_uploads_total.labels(bucket=self.CHUNKED_BUCKET, status='failed').inc()
-                    processing_errors_total.labels(stage='s3_upload', error_type='upload_failed').inc()
+                    metrics.s3_uploads_total.labels(bucket=self.CHUNKED_BUCKET, status='failed').inc()
+                    metrics.processing_errors.labels(stage='s3_upload', error_type='upload_failed').inc()
 
             # KB sync
             try:
@@ -272,34 +264,35 @@ class Orchestrator:
                 
                 if folder_name in kb_mapping:
                     self.logger.info(f"Starting KB sync for folder: {folder_name}")
-                    files_in_kb_sync.inc()
-                    pipeline_stage_files.labels(stage='kb_sync').inc()
+                    metrics.files_in_kb_sync.inc()
+                    metrics.pipeline_stage_files.labels(stage='kb_sync').inc()
                     kb_start = time.time()
                     kb_result = kb_service.sync_to_knowledge_base_simple(folder_name)
                     kb_duration = time.time() - kb_start
-                    files_in_kb_sync.dec()
+                    metrics.files_in_kb_sync.dec()
+                    metrics.pipeline_stage_files.labels(stage='kb_sync').dec()
                     self.logger.info(f"KB sync completed for {folder_name}: {kb_result}, duration={kb_duration:.2f}s")
-                else:
-                    self.logger.info(f"No KB mapping found for folder: {folder_name}")
-                    pipeline_stage_files.labels(stage='kb_sync').dec()
                     
                     if kb_result.get('status') == 'COMPLETE':
-                        kb_sync_operations_total.labels(status='success').inc()
-                        processing_duration_seconds.labels(stage='kb_sync').observe(kb_duration)
+                        # Record successful KB sync - YOUR NEW METRIC!
+                        metrics.record_kb_sync_success(folder_name)
+                        metrics.record_processing_time('kb_sync', kb_duration)
                         self.logger.info(f"KB sync completed in {kb_duration:.1f}s")
                     else:
-                        kb_sync_operations_total.labels(status='failed').inc()
+                        metrics.record_kb_sync_attempt(folder_name, 'failed', kb_duration)
                         self.logger.warning(f"KB sync failed with status: {kb_result.get('status')}")
+                else:
+                    self.logger.info(f"No KB mapping found for folder: {folder_name}")
                         
             except Exception as e:
-                kb_sync_operations_total.labels(status='failed').inc()
-                processing_errors_total.labels(stage='kb_sync', error_type='sync_failed').inc()
+                metrics.record_kb_sync_attempt(folder_name, 'failed')
+                metrics.processing_errors.labels(stage='kb_sync', error_type='sync_failed').inc()
                 self.logger.error(f"KB sync error: {str(e)}")
 
             # Final metrics
             processing_time_total = time.time() - start_time
-            processing_duration_seconds.labels(stage='total').observe(processing_time_total)
-            files_processed_total.labels(status='success').inc()
+            metrics.record_processing_time('total', processing_time_total)
+            metrics.record_file_processed('success', folder_name)
             
             return success_count > 0
             
@@ -309,12 +302,12 @@ class Orchestrator:
                 self.logger.info(f"File not found, skipping: {file_key}")
                 return False
             else:
-                processing_errors_total.labels(stage='processing', error_type='general').inc()
+                metrics.processing_errors.labels(stage='processing', error_type='general').inc()
                 self.logger.error(f"Error processing {file_key}: {e}")
-                files_processed_total.labels(status='failed').inc()
+                metrics.record_file_processed('failed', folder_name)
                 return False
         finally:
-            active_processing_jobs.dec()
-            sqs_messages_in_flight.dec()
-            pipeline_stage_files.labels(stage='processing').dec()
-            pipeline_stage_files.labels(stage='completed').inc()
+            metrics.decrement_active_jobs()
+            metrics.sqs_messages_in_flight.dec()
+            metrics.pipeline_stage_files.labels(stage='processing').dec()
+            metrics.pipeline_stage_files.labels(stage='completed').inc()

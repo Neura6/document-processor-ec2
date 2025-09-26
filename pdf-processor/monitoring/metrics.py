@@ -15,6 +15,12 @@ kb_sync_total = Counter('kb_sync_total', 'Total KB sync attempts', ['folder', 's
 kb_sync_duration = Histogram('kb_sync_duration_seconds', 'KB sync duration', ['folder'])
 kb_mapping_found = Gauge('kb_mapping_found', 'KB mapping found for folder', ['folder'])
 
+# File tracking metrics - NEW ADDITIONS
+files_uploaded_total = Counter('files_uploaded_total', 'Total files uploaded to source bucket', ['folder'])
+chunks_created_total = Counter('chunks_created_total', 'Total PDF chunks created', ['folder'])
+files_pending_sync = Gauge('files_pending_kb_sync', 'Files waiting for KB sync', ['folder'])
+kb_sync_success_total = Counter('kb_sync_success_total', 'Successfully synced files to KB', ['folder'])
+
 # Real-time SQS Queue metrics
 sqs_messages_available = Gauge('sqs_messages_available', 'Messages currently in SQS queue')
 sqs_messages_in_flight = Gauge('sqs_messages_in_flight', 'Messages being processed by EC2')
@@ -51,3 +57,20 @@ def record_kb_sync(folder, status, duration=None):
     kb_sync_total.labels(folder=folder, status=status).inc()
     if duration:
         kb_sync_duration.labels(folder=folder).observe(duration)
+
+# NEW HELPER FUNCTIONS
+def record_file_uploaded(folder):
+    """Record a file uploaded to source bucket"""
+    files_uploaded_total.labels(folder=folder).inc()
+
+def record_chunks_created(folder, chunk_count):
+    """Record PDF chunks created"""
+    chunks_created_total.labels(folder=folder).inc(chunk_count)
+
+def record_kb_sync_success(folder):
+    """Record successful KB sync"""
+    kb_sync_success_total.labels(folder=folder).inc()
+
+def update_pending_sync_count(folder, count):
+    """Update the count of files pending KB sync"""
+    files_pending_sync.labels(folder=folder).set(count)
