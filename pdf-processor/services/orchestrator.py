@@ -283,6 +283,7 @@ class Orchestrator:
                         self.logger.warning(f"KB sync failed with status: {kb_result.get('status')}")
                 else:
                     self.logger.info(f"No KB mapping found for folder: {folder_name}")
+                    # No KB sync attempted, so no metrics to record
                         
             except Exception as e:
                 metrics.record_kb_sync_attempt(folder_name, 'failed')
