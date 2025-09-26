@@ -221,7 +221,7 @@ class SQSWorker:
                 QueueUrl=self.queue_url,
                 MaxNumberOfMessages=max_messages,
                 WaitTimeSeconds=10,
-                VisibilityTimeoutSeconds=self.visibility_timeout
+                VisibilityTimeout=self.visibility_timeout
             )
             return response.get('Messages', [])
         except Exception as e:
