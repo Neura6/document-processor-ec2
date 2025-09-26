@@ -26,11 +26,12 @@ class DocumentMetrics:
         self.kb_sync_duration = Histogram('kb_sync_duration_seconds', 'KB sync duration', ['folder'])
         self.kb_mapping_found = Gauge('kb_mapping_found', 'KB mapping found for folder', ['folder'])
         
-        # File tracking metrics - YOUR NEW REQUIREMENTS
-        self.files_uploaded_total = Counter('files_uploaded_total', 'Total files uploaded to source bucket', ['folder'])
-        self.chunks_created_total = Counter('chunks_created_total', 'Total PDF chunks created', ['folder'])
-        self.files_pending_sync = Gauge('files_pending_kb_sync', 'Files waiting for KB sync', ['folder'])
-        self.kb_sync_success_total = Counter('kb_sync_success_total', 'Successfully synced files to KB', ['folder'])
+        # File tracking metrics - YOUR NEW REQUIREMENTS (imported from metrics.py)
+        from monitoring.metrics import files_uploaded_total, chunks_created_total, files_pending_sync, kb_sync_success_total
+        self.files_uploaded_total = files_uploaded_total
+        self.chunks_created_total = chunks_created_total
+        self.files_pending_sync = files_pending_sync
+        self.kb_sync_success_total = kb_sync_success_total
         
         # Real-time SQS Queue metrics
         self.sqs_messages_available = Gauge('sqs_messages_available', 'Messages currently in SQS queue')
