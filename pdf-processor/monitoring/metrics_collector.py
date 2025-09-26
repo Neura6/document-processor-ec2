@@ -1,12 +1,14 @@
 import time
 import logging
 from prometheus_client import Counter, Histogram, Gauge, start_http_server
+import time
+# Import shared metrics from metrics.py
+from monitoring import metrics as shared_metrics
 from typing import Dict, Any
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
 # Document Processing Pipeline Metrics
 class DocumentMetrics:
     """Centralized metrics collection for document processing pipeline."""
@@ -27,7 +29,6 @@ class DocumentMetrics:
         self.kb_mapping_found = Gauge('kb_mapping_found', 'KB mapping found for folder', ['folder'])
         
         # File tracking metrics - YOUR NEW REQUIREMENTS (using shared instances)
-        import monitoring.metrics as shared_metrics
         self.files_uploaded_total = shared_metrics.files_uploaded_total
         self.chunks_created_total = shared_metrics.chunks_created_total
         self.files_pending_sync = shared_metrics.files_pending_sync
