@@ -78,7 +78,7 @@ class Orchestrator:
                     file_bytes = self.s3_service.get_object(self.SOURCE_BUCKET, decoded_file_key)
                     
                     if file_bytes is not None:
-                        processing_duration_seconds.labels(stage='s3_download').observe(time.time() - download_start)
+                        metrics.processing_duration.labels(step='s3_download').observe(time.time() - download_start)
                         self.logger.info(f"Successfully downloaded {len(file_bytes)} bytes from {decoded_file_key}")
                         break
                     
