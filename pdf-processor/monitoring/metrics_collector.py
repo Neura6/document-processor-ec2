@@ -14,19 +14,19 @@ class DocumentMetrics:
     """Centralized metrics collection for document processing pipeline."""
     
     def __init__(self):
-        # Processing metrics (matching metrics.py)
-        self.files_processed_total = Counter('pdf_files_processed_total', 'Total files processed', ['status', 'folder'])
-        self.processing_duration = Histogram('pdf_processing_duration_seconds', 'Processing time per file', ['step'])
-        self.processing_errors = Counter('pdf_processing_errors_total', 'Total processing errors', ['error_type', 'step'])
+        # Use ALL shared metrics from metrics.py to avoid duplicates
+        self.files_processed_total = shared_metrics.files_processed_total
+        self.processing_duration = shared_metrics.processing_duration
+        self.processing_errors = shared_metrics.processing_errors
         
-        # S3 metrics (matching metrics.py)
-        self.s3_uploads_total = Counter('s3_uploads_total', 'Total S3 uploads', ['bucket', 'status'])
-        self.s3_upload_duration = Histogram('s3_upload_duration_seconds', 'S3 upload duration')
+        # S3 metrics (using shared instances)
+        self.s3_uploads_total = shared_metrics.s3_uploads_total
+        self.s3_upload_duration = shared_metrics.s3_upload_duration
         
-        # KB Sync metrics (matching metrics.py)
-        self.kb_sync_total = Counter('kb_sync_total', 'Total KB sync attempts', ['folder', 'status'])
-        self.kb_sync_duration = Histogram('kb_sync_duration_seconds', 'KB sync duration', ['folder'])
-        self.kb_mapping_found = Gauge('kb_mapping_found', 'KB mapping found for folder', ['folder'])
+        # KB Sync metrics (using shared instances)
+        self.kb_sync_total = shared_metrics.kb_sync_total
+        self.kb_sync_duration = shared_metrics.kb_sync_duration
+        self.kb_mapping_found = shared_metrics.kb_mapping_found
         
         # File tracking metrics - YOUR NEW REQUIREMENTS (using shared instances)
         self.files_uploaded_total = shared_metrics.files_uploaded_total
@@ -34,23 +34,23 @@ class DocumentMetrics:
         self.files_pending_sync = shared_metrics.files_pending_sync
         self.kb_sync_success_total = shared_metrics.kb_sync_success_total
         
-        # Real-time SQS Queue metrics
-        self.sqs_messages_available = Gauge('sqs_messages_available', 'Messages currently in SQS queue')
-        self.sqs_messages_in_flight = Gauge('sqs_messages_in_flight', 'Messages being processed by EC2')
-        self.messages_processed = Counter('sqs_messages_processed_total', 'Total SQS messages processed')
+        # Real-time SQS Queue metrics (using shared instances)
+        self.sqs_messages_available = shared_metrics.sqs_messages_available
+        self.sqs_messages_in_flight = shared_metrics.sqs_messages_in_flight
+        self.messages_processed = shared_metrics.messages_processed
         
-        # Real-time Processing Stage metrics
-        self.files_in_conversion = Gauge('files_in_conversion', 'Files currently being converted')
-        self.files_in_ocr = Gauge('files_in_ocr', 'Files currently in OCR processing')
-        self.files_in_chunking = Gauge('files_in_chunking', 'Files currently being chunked')
-        self.files_in_kb_sync = Gauge('files_in_kb_sync', 'Files currently syncing to KB')
+        # Real-time Processing Stage metrics (using shared instances)
+        self.files_in_conversion = shared_metrics.files_in_conversion
+        self.files_in_ocr = shared_metrics.files_in_ocr
+        self.files_in_chunking = shared_metrics.files_in_chunking
+        self.files_in_kb_sync = shared_metrics.files_in_kb_sync
         
-        # Pipeline overview
-        self.pipeline_stage_files = Gauge('pipeline_stage_files', 'Files in each pipeline stage', ['stage'])
+        # Pipeline overview (using shared instances)
+        self.pipeline_stage_files = shared_metrics.pipeline_stage_files
         
-        # System metrics
-        self.active_processing_jobs = Gauge('active_processing_jobs', 'Number of active processing jobs')
-        self.processing_rate = Gauge('processing_rate_per_hour', 'Processing rate per hour')
+        # System metrics (using shared instances)
+        self.active_processing_jobs = shared_metrics.active_processing_jobs
+        self.processing_rate = shared_metrics.processing_rate
         
         # Additional detailed metrics for advanced monitoring
         self.conversions_total = Counter('document_conversions_total', 'Total format conversions', ['from_format', 'to_format', 'status'])
@@ -85,8 +85,8 @@ class DocumentMetrics:
     def record_s3_output_upload(self, duration: float, success: bool = True):
         """Record S3 output upload metrics."""
         status = 'success' if success else 'failed'
-        self.s3_output_uploads_total.labels(status=status).inc()
-        self.s3_output_duration.observe(duration)
+        self.s3_uploads_total.labels(bucket='chunked-rules-repository', status=status).inc()
+        self.s3_upload_duration.observe(duration)
         
     def record_kb_sync(self, duration: float, success: bool = True):
         """Record KB sync metrics."""
@@ -102,7 +102,7 @@ class DocumentMetrics:
         
     def record_error(self, stage: str, error_type: str):
         """Record processing errors."""
-        self.errors_total.labels(stage=stage, error_type=error_type).inc()
+        self.processing_errors.labels(stage=stage, error_type=error_type).inc()
         
     def increment_active_jobs(self):
         """Increment active jobs counter."""
