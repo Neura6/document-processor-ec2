@@ -197,13 +197,13 @@ class Orchestrator:
                 filename_only = cleaned_key.split('/')[-1]
                 base_name = os.path.splitext(filename_only)[0]
                 
-                if folder_path:
-                    chunk_key = f"{folder_path}/{base_name}_page_{page_num}.pdf"
-                else:
-                    chunk_key = f"{base_name}_page_{page_num}.pdf"
+                # Only normalize the filename, preserve folder structure
+                normalized_base_name = base_name.replace(' ', '_')
                 
-                # Ensure no spaces in chunk key (replace with underscores)
-                chunk_key = chunk_key.replace(' ', '_')
+                if folder_path:
+                    chunk_key = f"{folder_path}/{normalized_base_name}_page_{page_num}.pdf"
+                else:
+                    chunk_key = f"{normalized_base_name}_page_{page_num}.pdf"
                 
                 upload_start = time.time()
                 if self.s3_service.put_object(self.CHUNKED_BUCKET, chunk_key, output.getvalue()):

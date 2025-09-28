@@ -111,18 +111,17 @@ class ChunkingService:
         filename_only = actual_key.split('/')[-1]
         base_name = os.path.splitext(filename_only)[0]
         
-        # Generate chunk_s3_uri EXACTLY as orchestrator generates chunk_key
-        if folder_path:
-            chunk_key = f"{folder_path}/{base_name}_page_{page_number}.pdf"
-        else:
-            chunk_key = f"{base_name}_page_{page_number}.pdf"
-            
-        # Ensure no spaces in chunk key (replace with underscores) - same as orchestrator
-        chunk_key = chunk_key.replace(' ', '_')
+        # Generate chunk filename with normalized base_name (only filename, not folder path)
+        normalized_base_name = base_name.replace(' ', '_')  # Only normalize the filename
         
-        # EXTRA SAFETY: Also replace any remaining spaces in the full URI
+        # Generate chunk_s3_uri with preserved folder structure
+        if folder_path:
+            chunk_key = f"{folder_path}/{normalized_base_name}_page_{page_number}.pdf"
+        else:
+            chunk_key = f"{normalized_base_name}_page_{page_number}.pdf"
+        
+        # Create S3 URI with preserved folder structure
         chunk_s3_uri = f"s3://{CHUNKED_BUCKET}/{chunk_key}"
-        chunk_s3_uri = chunk_s3_uri.replace(' ', '_')  # Replace any remaining spaces
         metadata['chunk_s3_uri'] = chunk_s3_uri
             
         # CRITICAL DEBUG LOGGING - will show in logs
