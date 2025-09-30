@@ -113,7 +113,7 @@ class Orchestrator:
                 metrics.pipeline_stage_files.labels(stage='conversion').dec()
                 
                 if pdf_content is None:
-                    metrics.processing_errors.labels(stage='conversion', error_type='conversion_failed').inc()
+                    metrics.processing_errors.labels(error_type='conversion_failed', step='conversion').inc()
                     metrics.conversions_total.labels(from_format=file_ext, to_format='pdf', status='failed').inc()
                     metrics.record_file_processed('failed', folder_name)
                     return False
@@ -180,7 +180,7 @@ class Orchestrator:
             metrics.pipeline_stage_files.labels(stage='chunking').dec()
             
             if not chunks:
-                metrics.processing_errors.labels(stage='chunking', error_type='chunking_failed').inc()
+                metrics.processing_errors.labels(error_type='chunking_failed', step='chunking').inc()
                 metrics.record_file_processed('failed', folder_name)
                 return False
 
@@ -232,7 +232,7 @@ class Orchestrator:
                     #         
                     # except Exception as e:
                     #     self.logger.error(f"❌ Failed to fix landscape orientation for {chunk_key}: {e}")
-                    #     processing_errors_total.labels(stage='metadata_fixing', error_type='landscape_fix_failed').inc()
+                    #     metrics.processing_errors.labels(error_type='landscape_fix_failed', step='metadata_fixing').inc()
                     #     # Continue processing - don't fail the entire pipeline
                     
                     # Create metadata file
@@ -246,10 +246,10 @@ class Orchestrator:
                         self.logger.info(f"Created metadata file for {chunk_key}")
                     except Exception as e:
                         self.logger.error(f"Failed to create metadata file for {chunk_key}: {e}")
-                        metrics.processing_errors.labels(stage='metadata_creation', error_type='metadata_failed').inc()
+                        metrics.processing_errors.labels(error_type='metadata_failed', step='metadata_creation').inc()
                 else:
                     metrics.s3_uploads_total.labels(bucket=self.CHUNKED_BUCKET, status='failed').inc()
-                    metrics.processing_errors.labels(stage='s3_upload', error_type='upload_failed').inc()
+                    metrics.processing_errors.labels(error_type='upload_failed', step='s3_upload').inc()
 
             # KB sync
             try:
@@ -287,7 +287,7 @@ class Orchestrator:
                         
             except Exception as e:
                 metrics.record_kb_sync_attempt(folder_name, 'failed')
-                metrics.processing_errors.labels(stage='kb_sync', error_type='sync_failed').inc()
+                metrics.processing_errors.labels(error_type='sync_failed', step='kb_sync').inc()
                 self.logger.error(f"KB sync error: {str(e)}")
 
             # Final metrics
@@ -303,7 +303,7 @@ class Orchestrator:
                 self.logger.info(f"File not found, skipping: {file_key}")
                 return False
             else:
-                metrics.processing_errors.labels(stage='processing', error_type='general').inc()
+                metrics.processing_errors.labels(error_type='general', step='processing').inc()
                 self.logger.error(f"Error processing {file_key}: {e}")
                 metrics.record_file_processed('failed', folder_name)
                 return False

@@ -44,6 +44,7 @@ class KBMappingConfig:
     'usecase-reports-4': {'id': 'WHF3OXB1MQ', 'data_source_id': 'CN63WXZKZW'},
     'commercial-case-laws': {'id': 'DQ6AIARMNQ', 'data_source_id': 'NXNCQID5NX'},
     'test':{'id':'VDAPHQ1JTN','data_source_id':'EAVX8UD6RY'}
+
 }
     
     CHUNKED_BUCKET = 'chunked-rules-repository'
@@ -295,16 +296,52 @@ class KBIngestionService:
             except:
                 logger.warning(f"[KB-SYNC] Could not count files in {folder}")
 
-            response = self.bedrock_client.start_ingestion_job(
-                clientToken=client_token,
-                dataSourceId=kb_info['data_source_id'],
-                knowledgeBaseId=kb_info['id'],
-                description=description
-            )
-            job_id = response['ingestionJob']['ingestionJobId']
-            logger.info(f"[KB-SYNC] ✅ Started ingestion job: {job_id}")
-            logger.info(f"[KB-SYNC] 📋 Job Description: {description}")
-            logger.info(f"[KB-SYNC] ⏱️  Monitoring job status...")
+            try:
+                response = self.bedrock_client.start_ingestion_job(
+                    clientToken=client_token,
+                    dataSourceId=kb_info['data_source_id'],
+                    knowledgeBaseId=kb_info['id'],
+                    description=description
+                )
+                job_id = response['ingestionJob']['ingestionJobId']
+                logger.info(f"[KB-SYNC] ✅ Started ingestion job: {job_id}")
+                logger.info(f"[KB-SYNC] 📋 Job Description: {description}")
+                logger.info(f"[KB-SYNC] ⏱️  Monitoring job status...")
+            except Exception as e:
+                if 'ConflictException' in str(e) and 'ongoing ingestion job' in str(e):
+                    logger.warning(f"[KB-SYNC] ⚠️  ConflictException: Another ingestion job is already running for this data source")
+                    logger.info(f"[KB-SYNC] 🔄 Waiting for ongoing job to complete before retrying...")
+                    
+                    # Wait for existing job to complete (max 30 minutes)
+                    max_wait_attempts = 60  # 30 minutes with 30-second intervals
+                    for wait_attempt in range(max_wait_attempts):
+                        time.sleep(30)
+                        try:
+                            # Try to start the job again
+                            client_token = str(uuid.uuid4())  # New token for retry
+                            response = self.bedrock_client.start_ingestion_job(
+                                clientToken=client_token,
+                                dataSourceId=kb_info['data_source_id'],
+                                knowledgeBaseId=kb_info['id'],
+                                description=f"{description} (retry after conflict)"
+                            )
+                            job_id = response['ingestionJob']['ingestionJobId']
+                            logger.info(f"[KB-SYNC] ✅ Successfully started ingestion job after waiting: {job_id}")
+                            break
+                        except Exception as retry_e:
+                            if 'ConflictException' in str(retry_e):
+                                logger.info(f"[KB-SYNC] 🕐 Still waiting for ongoing job to complete... (attempt {wait_attempt + 1}/{max_wait_attempts})")
+                                continue
+                            else:
+                                logger.error(f"[KB-SYNC] ❌ Unexpected error during retry: {str(retry_e)}")
+                                raise retry_e
+                    else:
+                        # If we exhausted all wait attempts
+                        logger.error(f"[KB-SYNC] ❌ Timeout waiting for ongoing ingestion job to complete after 30 minutes")
+                        return {'status': 'TIMEOUT', 'message': 'Timeout waiting for ongoing ingestion job to complete'}
+                else:
+                    # Re-raise if it's not a ConflictException
+                    raise e
 
             # Wait for job to complete with enhanced logging
             wait_result = self.wait_for_ingestion_job(kb_info, job_id)
