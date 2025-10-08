@@ -440,8 +440,13 @@ class Orchestrator:
         """Synchronous document preparation (conversion + watermark removal)"""
         try:
             # Format conversion if needed
-            processed_data = self.conversion_service.convert_to_pdf(pdf_data, file_key)
-            if not processed_data:
+            if self.conversion_service.is_convertible_format(file_key):
+                conversion_result = self.conversion_service.convert_to_pdf(pdf_data, file_key)
+                if conversion_result and conversion_result[0]:
+                    processed_data = conversion_result[0]
+                else:
+                    processed_data = pdf_data
+            else:
                 processed_data = pdf_data
             
             # Watermark removal

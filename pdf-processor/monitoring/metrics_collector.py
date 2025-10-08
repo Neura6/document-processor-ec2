@@ -31,6 +31,8 @@ class DocumentMetrics:
         # File tracking metrics - YOUR NEW REQUIREMENTS (using shared instances)
         self.files_uploaded_total = shared_metrics.files_uploaded_total
         self.chunks_created_total = shared_metrics.chunks_created_total
+        self.processed_chunks_created_total = shared_metrics.processed_chunks_created_total
+        self.direct_chunks_created_total = shared_metrics.direct_chunks_created_total
         self.files_pending_sync = shared_metrics.files_pending_sync
         self.kb_sync_success_total = shared_metrics.kb_sync_success_total
         
