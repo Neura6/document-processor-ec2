@@ -8,6 +8,7 @@ import os
 import logging
 from typing import List, Dict, Any
 from botocore.exceptions import NoCredentialsError, PartialCredentialsError
+from botocore.config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -22,16 +23,26 @@ class S3Service:
         self._setup_s3()
     
     def _setup_s3(self):
-        """Setup S3 client."""
+        """Setup S3 client with optimized connection pool."""
         try:
             boto3.setup_default_session(
                 aws_access_key_id=self.aws_access_key_id,
                 aws_secret_access_key=self.aws_secret_access_key,
                 region_name=self.region_name
             )
-            self.s3 = boto3.client('s3', region_name=self.region_name)
+            
+            # Configure S3 client with increased connection pool for high-throughput uploads
+            config = Config(
+                region_name=self.region_name,
+                retries={'max_attempts': 3, 'mode': 'adaptive'},
+                max_pool_connections=50,  # Increased from default 10 to 50
+                connect_timeout=60,
+                read_timeout=60
+            )
+            
+            self.s3 = boto3.client('s3', config=config)
             self.s3.list_buckets()  # Test connection
-            logger.info("S3 client initialized successfully")
+            logger.info("S3 client initialized successfully with optimized connection pool (50 connections)")
         except Exception as e:
             logger.error(f"Failed to setup S3 client: {e}")
             raise

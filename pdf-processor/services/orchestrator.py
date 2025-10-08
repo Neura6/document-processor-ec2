@@ -431,9 +431,17 @@ class Orchestrator:
                         self._upload_chunk_async(chunk_stream, self.DIRECT_CHUNKED_BUCKET, chunk_key, metadata)
                     )
                 
-                # Execute all uploads in parallel
+                # Execute uploads with controlled concurrency to prevent connection pool exhaustion
                 if upload_tasks:
-                    upload_results = await asyncio.gather(*upload_tasks, return_exceptions=True)
+                    # Limit concurrent uploads to 20 to stay within connection pool limits
+                    semaphore = asyncio.Semaphore(20)
+                    
+                    async def controlled_upload(task):
+                        async with semaphore:
+                            return await task
+                    
+                    controlled_tasks = [controlled_upload(task) for task in upload_tasks]
+                    upload_results = await asyncio.gather(*controlled_tasks, return_exceptions=True)
                     successful_uploads = sum(1 for result in upload_results if result is True)
                     self.logger.info(f"📤 Uploaded {successful_uploads}/{len(upload_tasks)} chunks successfully")
                 
