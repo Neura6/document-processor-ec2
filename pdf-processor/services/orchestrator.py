@@ -431,7 +431,7 @@ class Orchestrator:
     def _download_file_sync(self, file_key: str) -> bytes:
         """Synchronous file download for thread pool execution"""
         try:
-            return self.s3_service.download_file(self.SOURCE_BUCKET, file_key)
+            return self.s3_service.get_object(self.SOURCE_BUCKET, file_key)
         except Exception as e:
             self.logger.error(f"Download failed for {file_key}: {e}")
             return None
