@@ -2,12 +2,15 @@ services:
   pdf-processor:
     build: .
     container_name: pdf-processor
+    env_file:
+      - .env
     environment:
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
       - AWS_REGION=${AWS_REGION:-us-east-1}
       - SOURCE_BUCKET=${SOURCE_BUCKET:-rules-repository}
       - CHUNKED_BUCKET=${CHUNKED_BUCKET:-chunked-rules-repository}
+      - DIRECT_CHUNKED_BUCKET=${DIRECT_CHUNKED_BUCKET:-rules-repository-alpha}
       - UNPROCESSED_BUCKET=${UNPROCESSED_BUCKET:-unprocessed-files-error-on-pdf-processing}
       - SQS_QUEUE_URL=${SQS_QUEUE_URL}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
