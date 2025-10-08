@@ -1,5 +1,6 @@
 from prometheus_client import Counter, Histogram, Gauge, start_http_server
 import time
+import re
 
 # Processing metrics
 files_processed_total = Counter('pdf_files_processed_total', 'Total files processed', ['status', 'folder'])
@@ -18,6 +19,8 @@ kb_mapping_found = Gauge('kb_mapping_found', 'KB mapping found for folder', ['fo
 # File tracking metrics - NEW ADDITIONS
 files_uploaded_total = Counter('files_uploaded_total', 'Total files uploaded to source bucket', ['folder'])
 chunks_created_total = Counter('chunks_created_total', 'Total PDF chunks created', ['folder'])
+processed_chunks_created_total = Counter('processed_chunks_created_total', 'Total processed PDF chunks created', ['folder'])
+direct_chunks_created_total = Counter('direct_chunks_created_total', 'Total direct PDF chunks created', ['folder'])
 files_pending_sync = Gauge('files_pending_kb_sync', 'Files waiting for KB sync', ['folder'])
 kb_sync_success_total = Counter('kb_sync_success_total', 'Successfully synced files to KB', ['folder'])
 
@@ -43,6 +46,18 @@ def start_metrics_server(port=8000):
     """Start Prometheus metrics server"""
     start_http_server(port)
     print(f"Metrics server started on port {port}")
+
+def sanitize_label_value(value):
+    """Sanitize label values for Prometheus compatibility"""
+    if not value:
+        return "default"
+    # Replace spaces and special characters with underscores
+    sanitized = re.sub(r'[^a-zA-Z0-9_]', '_', str(value))
+    # Remove multiple consecutive underscores
+    sanitized = re.sub(r'_+', '_', sanitized)
+    # Remove leading/trailing underscores
+    sanitized = sanitized.strip('_')
+    return sanitized or "default"
 
 def record_processing_time(step_name, duration):
     """Record processing time for a specific step"""

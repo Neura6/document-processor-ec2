@@ -8,34 +8,50 @@ import io
 import os
 import time
 import logging
+import asyncio
 from typing import List, Dict, Any
 from urllib.parse import unquote
 import PyPDF2
+from concurrent.futures import ThreadPoolExecutor
 from services.filename_service import FilenameService
 from services.watermark_service import WatermarkService
 from services.ocr_service import OCRService
 from services.chunking_service import ChunkingService
 from services.s3_service import S3Service
 from services.conversion_service import ConversionService
+from services.pdf_plumber_service import PDFPlumberService
 from prometheus_client import Counter, Histogram, Gauge
-from config import AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, SOURCE_BUCKET, CHUNKED_BUCKET
+from config import (
+    AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION,
+    SOURCE_BUCKET, CHUNKED_BUCKET, DIRECT_CHUNKED_BUCKET,
+    MAX_WORKERS_PER_STAGE, ASYNC_PROCESSING
+)
 from monitoring.metrics_collector import metrics
+from monitoring.metrics import sanitize_label_value
 
 class Orchestrator:
     """Main orchestrator for PDF processing workflow."""
     
     def __init__(self):
         self.logger = logging.getLogger(__name__)
-        self.conversion_service = ConversionService()  # FIXED
+        self.conversion_service = ConversionService()
         self.filename_service = FilenameService()
         self.watermark_service = WatermarkService()
         self.ocr_service = OCRService()
+        self.pdf_plumber_service = PDFPlumberService()
         self.chunking_service = ChunkingService()
-        self.s3_service = S3Service(AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
+        self.s3_service = S3Service(AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION)
         
         # Initialize S3 constants
         self.SOURCE_BUCKET = SOURCE_BUCKET
         self.CHUNKED_BUCKET = CHUNKED_BUCKET
+        self.DIRECT_CHUNKED_BUCKET = DIRECT_CHUNKED_BUCKET
+        
+        # Thread pool for CPU-intensive operations
+        self.executor = ThreadPoolExecutor(max_workers=MAX_WORKERS_PER_STAGE)
+        
+        # Async processing semaphores
+        self.processing_semaphore = asyncio.Semaphore(MAX_WORKERS_PER_STAGE)
         
         # Configure logging
         logging.basicConfig(
@@ -312,3 +328,151 @@ class Orchestrator:
             metrics.sqs_messages_in_flight.dec()
             metrics.pipeline_stage_files.labels(stage='processing').dec()
             metrics.pipeline_stage_files.labels(stage='completed').inc()
+    
+    async def process_single_file_async(self, file_key: str) -> bool:
+        """
+        Async version of process_single_file with dual chunking strategy
+        
+        Args:
+            file_key: S3 key of the file to process
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        async with self.processing_semaphore:
+            start_time = time.time()
+            folder_name = sanitize_label_value(file_key.split('/')[0])
+            
+            try:
+                self.logger.info(f"🚀 Starting async processing: {file_key}")
+                
+                # Stage 1: File Download
+                loop = asyncio.get_event_loop()
+                pdf_data = await loop.run_in_executor(
+                    self.executor, 
+                    self._download_file_sync, 
+                    file_key
+                )
+                
+                if not pdf_data:
+                    return False
+                
+                # Stage 2: Document Preparation (sync operations in thread pool)
+                original_pdf_data, processed_pdf_data = await loop.run_in_executor(
+                    self.executor,
+                    self._prepare_document_sync,
+                    pdf_data, file_key
+                )
+                
+                if not original_pdf_data:
+                    return False
+                
+                # Stage 3: Enhanced Processing (OCR + PDF-plumber)
+                enhanced_pdf_data = await loop.run_in_executor(
+                    self.executor,
+                    self._enhance_document_sync,
+                    processed_pdf_data, file_key
+                )
+                
+                # Stage 4: Dual Chunking Strategy (PARALLEL PROCESSING)
+                self.logger.info(f"🔄 Starting dual chunking for: {file_key}")
+                
+                # Create both chunking tasks simultaneously
+                processed_task = asyncio.create_task(
+                    self.chunking_service.chunk_pdf_processed(
+                        original_pdf_data, file_key, enhanced_pdf_data
+                    )
+                )
+                
+                direct_task = asyncio.create_task(
+                    self.chunking_service.chunk_pdf_direct(
+                        original_pdf_data, file_key
+                    )
+                )
+                
+                # Wait for both chunking streams to complete
+                processed_chunks, direct_chunks = await asyncio.gather(
+                    processed_task, direct_task, return_exceptions=True
+                )
+                
+                # Handle exceptions in chunking results
+                if isinstance(processed_chunks, Exception):
+                    self.logger.error(f"Processed chunking failed: {processed_chunks}")
+                    processed_chunks = []
+                
+                if isinstance(direct_chunks, Exception):
+                    self.logger.error(f"Direct chunking failed: {direct_chunks}")
+                    direct_chunks = []
+                
+                # Record dual chunking metrics
+                if processed_chunks:
+                    metrics.processed_chunks_created_total.labels(folder=folder_name).inc(len(processed_chunks))
+                if direct_chunks:
+                    metrics.direct_chunks_created_total.labels(folder=folder_name).inc(len(direct_chunks))
+                
+                # Record metrics
+                processing_time = time.time() - start_time
+                metrics.record_processing_time('total_async', processing_time)
+                metrics.record_file_processed('success', folder_name)
+                
+                self.logger.info(f"🎉 Async processing completed: {file_key} ({processing_time:.2f}s)")
+                return True
+                
+            except Exception as e:
+                processing_time = time.time() - start_time
+                self.logger.error(f"💥 Async processing failed for {file_key}: {e} ({processing_time:.2f}s)")
+                metrics.record_file_processed('failed', folder_name)
+                metrics.processing_errors.labels(error_type='async_processing', step='orchestrator').inc()
+                return False
+    
+    def _download_file_sync(self, file_key: str) -> bytes:
+        """Synchronous file download for thread pool execution"""
+        try:
+            return self.s3_service.download_file(self.SOURCE_BUCKET, file_key)
+        except Exception as e:
+            self.logger.error(f"Download failed for {file_key}: {e}")
+            return None
+    
+    def _prepare_document_sync(self, pdf_data: bytes, file_key: str) -> tuple:
+        """Synchronous document preparation (conversion + watermark removal)"""
+        try:
+            # Format conversion if needed
+            processed_data = self.conversion_service.convert_to_pdf(pdf_data, file_key)
+            if not processed_data:
+                processed_data = pdf_data
+            
+            # Watermark removal
+            cleaned_data = self.watermark_service.remove_watermarks(processed_data)
+            if not cleaned_data:
+                cleaned_data = processed_data
+            
+            return pdf_data, cleaned_data  # Return both original and processed
+            
+        except Exception as e:
+            self.logger.error(f"Document preparation failed for {file_key}: {e}")
+            return pdf_data, pdf_data  # Return original as fallback
+    
+    def _enhance_document_sync(self, pdf_data: bytes, file_key: str) -> bytes:
+        """Synchronous document enhancement (OCR + PDF-plumber)"""
+        try:
+            enhanced_data = pdf_data
+            
+            # OCR processing if needed
+            ocr_result = self.ocr_service.process_pdf(io.BytesIO(pdf_data), file_key)
+            if ocr_result:
+                enhanced_data = ocr_result.getvalue()
+            
+            # PDF-plumber processing
+            plumber_result, processed_pages = self.pdf_plumber_service.apply_pdf_plumber_to_pdf(
+                io.BytesIO(enhanced_data), file_key
+            )
+            
+            if plumber_result:
+                enhanced_data = plumber_result.getvalue()
+                self.logger.info(f"PDF-plumber enhanced {len(processed_pages)} pages for {file_key}")
+            
+            return enhanced_data
+            
+        except Exception as e:
+            self.logger.error(f"Document enhancement failed for {file_key}: {e}")
+            return pdf_data  # Return original as fallback

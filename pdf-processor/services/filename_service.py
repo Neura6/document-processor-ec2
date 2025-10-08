@@ -23,7 +23,7 @@ MULTIPLE_UNDERSCORES_REGEX = r"_{2,}"
 WHITESPACE_REGEX = r"\s+"
 
 class FilenameService:
-    """Service for cleaning and normalizing filenames."""
+    """Service for cleaning and norm  alizing filenames."""
     
     def __init__(self):
         self.logger = logging.getLogger(__name__)

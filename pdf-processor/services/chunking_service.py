@@ -8,7 +8,7 @@ import os
 from io import BytesIO
 import logging
 from typing import List, Dict, Any, Tuple
-from config import CHUNKED_BUCKET
+from config import CHUNKED_BUCKET, DIRECT_CHUNKED_BUCKET
 from .metadata_service import MetadataService
 from .metadata_page import MetadataPageService
 
@@ -22,7 +22,7 @@ class ChunkingService:
         self.metadata_service = MetadataService()
         self.metadata_page_service = MetadataPageService()
     
-    def extract_metadata(self, key: str, page_number: int = 1, total_pages: int = 1, cleaned_key: str = None) -> Dict[str, Any]:
+    def extract_metadata(self, key: str, page_number: int = 1, total_pages: int = 1, cleaned_key: str = None, chunk_type: str = "processed") -> Dict[str, Any]:
         """
         Extract metadata from S3 key path - exactly matching Lambda's extract_metadata_from_source_key
         
@@ -238,4 +238,100 @@ class ChunkingService:
             
         except Exception as e:
             self.logger.error(f"Error chunking PDF: {e}")
+            return []
+    
+    async def chunk_pdf_processed(self, pdf_data: bytes, key: str, enhanced_pdf_data: bytes = None) -> List[Tuple[BytesIO, Dict[str, Any]]]:
+        """
+        Chunk PDF for processed stream (enhanced content) -> chunked-rules-repository -> KB sync
+        
+        Args:
+            pdf_data: Original PDF data
+            key: S3 key path
+            enhanced_pdf_data: Enhanced PDF data (OCR + PDF-plumber processed)
+            
+        Returns:
+            List of (chunk_stream, metadata) tuples
+        """
+        try:
+            # Use enhanced data if available, otherwise use original
+            data_to_chunk = enhanced_pdf_data if enhanced_pdf_data else pdf_data
+            
+            # Create chunks with processed metadata
+            chunks = self.chunk_pdf(data_to_chunk, key)
+            
+            processed_chunks = []
+            for writer, metadata in chunks:
+                # Update metadata for processed stream
+                metadata['processing_method'] = 'processed'
+                metadata['chunk_type'] = 'processed'
+                
+                # Generate dual URIs for processed chunks
+                base_filename = os.path.splitext(os.path.basename(key))[0]
+                page_num = metadata.get('page_number', 1)
+                
+                # Processed chunk URI (chunked-rules-repository)
+                processed_filename = f"{base_filename}_page_{page_num}_processed.pdf"
+                processed_key = key.replace(os.path.basename(key), processed_filename)
+                metadata['chunk_s3_uri_processed'] = f"s3://{CHUNKED_BUCKET}/{processed_key}"
+                
+                # Direct chunk URI (rules-repository-alpha) 
+                direct_filename = f"{base_filename}_page_{page_num}.pdf"
+                direct_key = key.replace(os.path.basename(key), direct_filename)
+                metadata['chunk_s3_uri'] = f"s3://{DIRECT_CHUNKED_BUCKET}/{direct_key}"
+                
+                # Convert writer to BytesIO
+                chunk_stream = BytesIO()
+                writer.write(chunk_stream)
+                chunk_stream.seek(0)
+                
+                processed_chunks.append((chunk_stream, metadata))
+                
+            self.logger.info(f"Created {len(processed_chunks)} processed chunks for {key}")
+            return processed_chunks
+            
+        except Exception as e:
+            self.logger.error(f"Error in processed chunking for {key}: {e}")
+            return []
+    
+    async def chunk_pdf_direct(self, pdf_data: bytes, key: str) -> List[Tuple[BytesIO, Dict[str, Any]]]:
+        """
+        Chunk PDF for direct stream (original content) -> rules-repository-alpha -> Storage only
+        
+        Args:
+            pdf_data: Original PDF data
+            key: S3 key path
+            
+        Returns:
+            List of (chunk_stream, metadata) tuples
+        """
+        try:
+            # Create chunks with direct metadata
+            chunks = self.chunk_pdf(pdf_data, key)
+            
+            direct_chunks = []
+            for writer, metadata in chunks:
+                # Update metadata for direct stream
+                metadata['processing_method'] = 'direct'
+                metadata['chunk_type'] = 'direct'
+                
+                # Generate URI for direct chunks (rules-repository-alpha only)
+                base_filename = os.path.splitext(os.path.basename(key))[0]
+                page_num = metadata.get('page_number', 1)
+                
+                direct_filename = f"{base_filename}_page_{page_num}.pdf"
+                direct_key = key.replace(os.path.basename(key), direct_filename)
+                metadata['chunk_s3_uri'] = f"s3://{DIRECT_CHUNKED_BUCKET}/{direct_key}"
+                
+                # Convert writer to BytesIO
+                chunk_stream = BytesIO()
+                writer.write(chunk_stream)
+                chunk_stream.seek(0)
+                
+                direct_chunks.append((chunk_stream, metadata))
+                
+            self.logger.info(f"Created {len(direct_chunks)} direct chunks for {key}")
+            return direct_chunks
+            
+        except Exception as e:
+            self.logger.error(f"Error in direct chunking for {key}: {e}")
             return []

@@ -231,7 +231,7 @@ class MetadataFixer:
                     c.setStrokeColorRGB(0.8, 0.8, 0.8)
                     c.line(col1_x, y + 10, col1_x + table_width, y + 10)
                     c.setStrokeColorRGB(0, 0, 0)  # Reset to black
-            
+                    
             # Draw table border
             c.rect(col1_x - 10, y, table_width + 20, y_start - y + 20)
             

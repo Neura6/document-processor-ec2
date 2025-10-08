@@ -12,7 +12,11 @@ import time
 import logging
 import os
 import threading
-import fcntl
+try:
+    import fcntl
+except ImportError:
+    # Windows doesn't have fcntl, use alternative locking
+    fcntl = None
 from typing import Dict, List, Any, Optional
 
 # Setup logging

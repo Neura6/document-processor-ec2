@@ -8,6 +8,7 @@ import os
 import json
 import logging
 import time
+import asyncio
 from typing import List, Dict, Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import boto3
@@ -17,6 +18,7 @@ from services.orchestrator import Orchestrator
 from services.filename_service import FilenameService
 from services.sqs_monitor import SQSMonitor
 from monitoring.metrics_collector import metrics, start_metrics_server
+from config import ASYNC_PROCESSING
 
 # Configure logging
 logging.basicConfig(
@@ -262,8 +264,123 @@ class SQSWorker:
             except Exception as e:
                 logger.error(f"Worker error: {str(e)}")
                 time.sleep(10)
+    
+    async def process_single_message_async(self, message: Dict) -> Dict[str, Any]:
+        """Process a single SQS message asynchronously with dual chunking"""
+        try:
+            # Parse S3 event from SQS message
+            body = json.loads(message['Body'])
+            
+            if 'Records' in body:
+                for record in body['Records']:
+                    if record.get('eventSource') == 'aws:s3':
+                        bucket = record['s3']['bucket']['name']
+                        object_key = unquote_plus(record['s3']['object']['key'])
+                        
+                        logger.info(f"[ASYNC] Processing S3 object: {object_key}")
+                        
+                        # Use async orchestrator method
+                        success = await self.orchestrator.process_single_file_async(object_key)
+                        
+                        if success:
+                            logger.info(f"[ASYNC] Successfully processed: {object_key}")
+                            return {
+                                'success': True,
+                                'file': object_key,
+                                'receipt_handle': message['ReceiptHandle']
+                            }
+                        else:
+                            logger.error(f"[ASYNC] Failed to process: {object_key}")
+                            return {
+                                'success': False,
+                                'file': object_key,
+                                'receipt_handle': message['ReceiptHandle']
+                            }
+                            
+        except Exception as e:
+            logger.error(f"[ASYNC] Error processing message: {e}")
+            return {
+                'success': False,
+                'error': str(e),
+                'receipt_handle': message.get('ReceiptHandle', 'unknown')
+            }
+    
+    async def process_messages_async(self, messages: List[Dict]) -> List[str]:
+        """Process messages asynchronously with dual chunking support"""
+        if not messages:
+            return []
+            
+        logger.info(f"[ASYNC] Processing {len(messages)} messages with async dual chunking")
+        
+        # Create async tasks for all messages
+        tasks = []
+        for message in messages:
+            task = asyncio.create_task(self.process_single_message_async(message))
+            tasks.append(task)
+        
+        # Wait for all tasks to complete
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Collect receipt handles for successful processing
+        receipt_handles = []
+        for result in results:
+            if isinstance(result, dict) and result.get('success'):
+                receipt_handles.append(result['receipt_handle'])
+            elif isinstance(result, Exception):
+                logger.error(f"[ASYNC] Task exception: {result}")
+        
+        logger.info(f"[ASYNC] Completed processing: {len(receipt_handles)}/{len(messages)} successful")
+        return receipt_handles
+    
+    async def run_async(self):
+        """Run the SQS worker with async processing and dual chunking"""
+        logger.info("🚀 Starting SQS Worker with ASYNC processing and dual chunking")
+        
+        # Start metrics server
+        start_metrics_server()
+        
+        # Start SQS monitor in background
+        self.sqs_monitor.start_monitoring()
+        
+        try:
+            while True:
+                try:
+                    # Get messages from SQS
+                    messages = self.get_messages()
+                    
+                    if messages:
+                        logger.info(f"Received {len(messages)} messages from SQS")
+                        
+                        # Process messages asynchronously
+                        processed_receipts = await self.process_messages_async(messages)
+                        
+                        # Delete processed messages
+                        if processed_receipts:
+                            self.delete_messages(processed_receipts)
+                    else:
+                        logger.debug("No messages, sleeping...")
+                        await asyncio.sleep(5)
+                        
+                except KeyboardInterrupt:
+                    logger.info("Async worker stopped by user")
+                    break
+                except Exception as e:
+                    logger.error(f"Async worker error: {str(e)}")
+                    await asyncio.sleep(10)
+        
+        finally:
+            # Cleanup
+            if hasattr(self.orchestrator, 'executor'):
+                self.orchestrator.executor.shutdown(wait=True)
 
 
 if __name__ == "__main__":
     worker = SQSWorker()
-    worker.run()
+    
+    # Check if async processing is enabled
+    if ASYNC_PROCESSING:
+        logger.info("🔄 Starting with ASYNC processing and dual chunking")
+        asyncio.run(worker.run_async())
+    else:
+        logger.info("⚙️ Starting with SYNC processing")
+        worker.run()
