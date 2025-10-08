@@ -346,7 +346,7 @@ class SQSWorker:
             while True:
                 try:
                     # Get messages from SQS
-                    messages = self.get_messages()
+                    messages = self.poll_sqs()
                     
                     if messages:
                         logger.info(f"Received {len(messages)} messages from SQS")
