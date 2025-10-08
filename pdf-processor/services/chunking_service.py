@@ -326,7 +326,7 @@ class ChunkingService:
                 
                 direct_filename = f"{base_filename}_page_{page_num}.pdf"
                 direct_key = key.replace(os.path.basename(key), direct_filename)
-                metadata['chunk_s3_uri'] = f"s3://{DIRECT_CHUNKED_BUCKET}/{direct_key}"
+                metadata['chunk_s3_uri_direct'] = f"s3://{DIRECT_CHUNKED_BUCKET}/{direct_key}"
                 
                 # Convert writer to BytesIO
                 chunk_stream = BytesIO()
