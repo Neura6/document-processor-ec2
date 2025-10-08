@@ -418,14 +418,15 @@ class Orchestrator:
                 
                 # Upload processed chunks to chunked-rules-repository
                 for chunk_stream, metadata in processed_chunks:
-                    chunk_key = metadata['chunk_s3_uri'].replace(f's3://{self.CHUNKED_BUCKET}/', '')
+                    # Use the S3 key with _processed suffix for storage differentiation
+                    chunk_key = metadata['chunk_s3_uri_processed'].replace(f's3://{self.CHUNKED_BUCKET}/', '')
                     upload_tasks.append(
                         self._upload_chunk_async(chunk_stream, self.CHUNKED_BUCKET, chunk_key, metadata)
                     )
                 
                 # Upload direct chunks to rules-repository-alpha
                 for chunk_stream, metadata in direct_chunks:
-                    chunk_key = metadata['chunk_s3_uri_direct'].replace(f's3://{self.DIRECT_CHUNKED_BUCKET}/', '')
+                    chunk_key = metadata['chunk_s3_uri'].replace(f's3://{self.DIRECT_CHUNKED_BUCKET}/', '')
                     upload_tasks.append(
                         self._upload_chunk_async(chunk_stream, self.DIRECT_CHUNKED_BUCKET, chunk_key, metadata)
                     )

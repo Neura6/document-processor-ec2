@@ -272,12 +272,13 @@ class ChunkingService:
                 base_filename = os.path.splitext(os.path.basename(key))[0]
                 page_num = metadata.get('page_number', 1)
                 
-                # Processed chunk URI (chunked-rules-repository)
-                processed_filename = f"{base_filename}_page_{page_num}_processed.pdf"
-                processed_key = key.replace(os.path.basename(key), processed_filename)
-                metadata['chunk_s3_uri_processed'] = f"s3://{CHUNKED_BUCKET}/{processed_key}"
+                # Dual URIs for processed chunks
+                # 1. Processed chunk URI (chunked-rules-repository) with _processed suffix in S3 key
+                processed_filename = f"{base_filename}_page_{page_num}.pdf"  # Keep original filename
+                processed_key_with_suffix = key.replace(os.path.basename(key), f"{base_filename}_page_{page_num}_processed.pdf")
+                metadata['chunk_s3_uri_processed'] = f"s3://{CHUNKED_BUCKET}/{processed_key_with_suffix}"
                 
-                # Direct chunk URI (rules-repository-alpha) 
+                # 2. Direct chunk URI (rules-repository-alpha) for cross-reference
                 direct_filename = f"{base_filename}_page_{page_num}.pdf"
                 direct_key = key.replace(os.path.basename(key), direct_filename)
                 metadata['chunk_s3_uri'] = f"s3://{DIRECT_CHUNKED_BUCKET}/{direct_key}"
@@ -326,7 +327,7 @@ class ChunkingService:
                 
                 direct_filename = f"{base_filename}_page_{page_num}.pdf"
                 direct_key = key.replace(os.path.basename(key), direct_filename)
-                metadata['chunk_s3_uri_direct'] = f"s3://{DIRECT_CHUNKED_BUCKET}/{direct_key}"
+                metadata['chunk_s3_uri'] = f"s3://{DIRECT_CHUNKED_BUCKET}/{direct_key}"
                 
                 # Convert writer to BytesIO
                 chunk_stream = BytesIO()
