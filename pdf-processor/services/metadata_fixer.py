@@ -191,6 +191,7 @@ class MetadataFixer:
                 'processed_file_path': 'Processed File Path', 
                 'page_number': 'Page Number',
                 'total_pages': 'Total Pages',
+                'chunk_s3_uri_processed': 'Chunk S3 Uri Processed',
                 'chunk_s3_uri': 'Chunk S3 Uri',
                 'standard_type': 'Standard Type',
                 'country': 'Country',
