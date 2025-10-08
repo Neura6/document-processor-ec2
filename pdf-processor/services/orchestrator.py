@@ -448,7 +448,11 @@ class Orchestrator:
                 # Stage 6: KB Sync (if applicable)
                 try:
                     from services.kb_sync_service import KBIngestionService
-                    kb_service = KBIngestionService()
+                    kb_service = KBIngestionService(
+                        aws_access_key_id=AWS_ACCESS_KEY_ID,
+                        aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
+                        region_name=AWS_REGION
+                    )
                     kb_mapping = kb_service.get_kb_mapping()
                     
                     if folder_name in kb_mapping:
