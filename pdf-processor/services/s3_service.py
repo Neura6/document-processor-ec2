@@ -6,9 +6,18 @@ Handles all AWS S3 operations including upload, download, copy, and delete.
 import boto3
 import os
 import logging
+import asyncio
 from typing import List, Dict, Any
 from botocore.exceptions import NoCredentialsError, PartialCredentialsError
 from botocore.config import Config
+
+# Try to import aioboto3 for true async, fallback to executor if not available
+try:
+    import aioboto3
+    AIOBOTO3_AVAILABLE = True
+except ImportError:
+    AIOBOTO3_AVAILABLE = False
+    logging.warning("aioboto3 not available, using executor fallback for async S3 operations")
 
 logger = logging.getLogger(__name__)
 
@@ -196,3 +205,53 @@ class S3Service:
         except Exception as e:
             logger.error(f"Error checking object existence: {e}")
             return False
+    
+    async def get_object_async(self, bucket: str, key: str) -> bytes:
+        """
+        True async version of get_object with optimal performance.
+        Uses aioboto3 if available, falls back to executor.
+        
+        Args:
+            bucket: S3 bucket name
+            key: Object key
+            
+        Returns:
+            Object data as bytes
+        """
+        try:
+            if AIOBOTO3_AVAILABLE:
+                # Use true async with aioboto3
+                session = aioboto3.Session(
+                    aws_access_key_id=self.aws_access_key_id,
+                    aws_secret_access_key=self.aws_secret_access_key,
+                    region_name=self.region_name
+                )
+                
+                config = Config(
+                    region_name=self.region_name,
+                    retries={'max_attempts': 3, 'mode': 'adaptive'},
+                    max_pool_connections=50,
+                    connect_timeout=60,
+                    read_timeout=60
+                )
+                
+                async with session.client('s3', config=config) as s3:
+                    response = await s3.get_object(Bucket=bucket, Key=key)
+                    data = await response['Body'].read()
+                    logger.info(f"✅ True async S3 download completed: {key}")
+                    return data
+            else:
+                # Fallback to executor
+                loop = asyncio.get_event_loop()
+                result = await loop.run_in_executor(
+                    None, 
+                    self.get_object, 
+                    bucket, 
+                    key
+                )
+                logger.info(f"✅ Executor-based S3 download completed: {key}")
+                return result
+            
+        except Exception as e:
+            logger.error(f"Error during async S3 get_object: {e}")
+            raise

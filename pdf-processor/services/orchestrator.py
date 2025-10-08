@@ -349,18 +349,15 @@ class Orchestrator:
             try:
                 self.logger.info(f"🚀 Starting async processing: {file_key}")
                 
-                # Stage 1: File Download
-                loop = asyncio.get_event_loop()
-                pdf_data = await loop.run_in_executor(
-                    self.executor, 
-                    self._download_file_sync, 
-                    file_key
-                )
+                # Stage 1: File Download (ASYNC)
+                self.logger.info(f"📥 Starting async S3 download: {file_key}")
+                pdf_data = await self.s3_service.get_object_async(self.SOURCE_BUCKET, file_key)
                 
                 if not pdf_data:
                     return False
                 
                 # Stage 2: Document Preparation (sync operations in thread pool)
+                loop = asyncio.get_event_loop()
                 original_pdf_data, processed_pdf_data = await loop.run_in_executor(
                     self.executor,
                     self._prepare_document_sync,
@@ -370,12 +367,64 @@ class Orchestrator:
                 if not original_pdf_data:
                     return False
                 
-                # Stage 3: Enhanced Processing (OCR + PDF-plumber)
-                enhanced_pdf_data = await loop.run_in_executor(
-                    self.executor,
-                    self._enhance_document_sync,
-                    processed_pdf_data, file_key
+                # Stage 3: Enhanced Processing (ASYNC OCR + PDF-plumber)
+                self.logger.info(f"🔄 Starting async OCR + PDF-plumber processing: {file_key}")
+                
+                # Run OCR and PDF-plumber in parallel
+                ocr_task = asyncio.create_task(
+                    self.ocr_service.apply_ocr_to_pdf_async(processed_pdf_data, file_key)
                 )
+                pdf_plumber_task = asyncio.create_task(
+                    self.pdf_plumber_service.apply_pdf_plumber_to_pdf_async(processed_pdf_data, file_key)
+                )
+                
+                # Wait for both to complete with error handling
+                try:
+                    ocr_result, pdf_plumber_result = await asyncio.gather(
+                        ocr_task, pdf_plumber_task, return_exceptions=True
+                    )
+                    
+                    # Handle exceptions in results with detailed logging
+                    if isinstance(ocr_result, Exception):
+                        self.logger.error(f"❌ OCR processing failed for {file_key}: {ocr_result}")
+                        # Log the full exception chain for debugging
+                        if hasattr(ocr_result, '__cause__') and ocr_result.__cause__:
+                            self.logger.error(f"OCR root cause: {ocr_result.__cause__}")
+                        ocr_result = (None, [])
+                    
+                    if isinstance(pdf_plumber_result, Exception):
+                        self.logger.error(f"❌ PDF-plumber processing failed for {file_key}: {pdf_plumber_result}")
+                        # Log the full exception chain for debugging
+                        if hasattr(pdf_plumber_result, '__cause__') and pdf_plumber_result.__cause__:
+                            self.logger.error(f"PDF-plumber root cause: {pdf_plumber_result.__cause__}")
+                        pdf_plumber_result = (None, [])
+                    
+                    # Use the best result with memory optimization
+                    enhanced_pdf_data = processed_pdf_data  # Default fallback
+                    
+                    if pdf_plumber_result and pdf_plumber_result[0]:
+                        enhanced_pdf_data = pdf_plumber_result[0].getvalue()
+                        # Clean up OCR result to free memory
+                        if ocr_result and ocr_result[0]:
+                            ocr_result[0].close()
+                        self.logger.info(f"✅ Using PDF-plumber enhanced data for: {file_key}")
+                    elif ocr_result and ocr_result[0]:
+                        enhanced_pdf_data = ocr_result[0].getvalue()
+                        self.logger.info(f"✅ Using OCR enhanced data for: {file_key}")
+                    else:
+                        # Clean up unused results to free memory
+                        if pdf_plumber_result and pdf_plumber_result[0]:
+                            pdf_plumber_result[0].close()
+                        if ocr_result and ocr_result[0]:
+                            ocr_result[0].close()
+                        self.logger.info(f"⚠️ Using original data (no enhancement) for: {file_key}")
+                    
+                    # Clear processed_pdf_data reference to help GC
+                    processed_pdf_data = None
+                        
+                except Exception as e:
+                    self.logger.error(f"Error in async enhancement processing: {e}")
+                    enhanced_pdf_data = processed_pdf_data
                 
                 # Stage 4: Dual Chunking Strategy (PARALLEL PROCESSING)
                 self.logger.info(f"🔄 Starting dual chunking for: {file_key}")

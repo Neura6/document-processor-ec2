@@ -8,6 +8,7 @@ import pytesseract
 from PIL import Image
 import io
 import logging
+import asyncio
 from typing import List, Tuple
 from concurrent.futures import ProcessPoolExecutor
 import os
@@ -175,3 +176,46 @@ class OCRService:
         except Exception as e:
             self.logger.error(f"Error during OCR processing: {e}")
             return None, []
+    
+    async def apply_ocr_to_pdf_async(self, pdf_data: bytes, file_key: str) -> Tuple[io.BytesIO, List[int]]:
+        """
+        Async version of OCR processing with improved parallel execution.
+        
+        Args:
+            pdf_data: PDF file as bytes
+            file_key: File identifier for logging
+            
+        Returns:
+            Tuple of (modified_pdf_stream, replaced_page_numbers)
+        """
+        if pdf_data is None:
+            logger.error("Received None data for async OCR processing")
+            return None, []
+        
+        try:
+            # Convert to BytesIO for compatibility
+            pdf_stream = io.BytesIO(pdf_data)
+            
+            # Run the existing OCR logic in executor with better error propagation
+            loop = asyncio.get_event_loop()
+            
+            def _ocr_with_error_context():
+                try:
+                    return self.apply_ocr_to_pdf(pdf_stream, file_key)
+                except Exception as e:
+                    # Add context to the exception
+                    raise Exception(f"OCR processing failed for {file_key}: {str(e)}") from e
+            
+            result = await loop.run_in_executor(None, _ocr_with_error_context)
+            
+            if result and result[0]:
+                self.logger.info(f"✅ Async OCR completed successfully for: {file_key}")
+            else:
+                self.logger.warning(f"⚠️ OCR returned no results for: {file_key}")
+            
+            return result
+            
+        except Exception as e:
+            self.logger.error(f"❌ Error during async OCR processing for {file_key}: {e}")
+            # Re-raise with context preserved
+            raise

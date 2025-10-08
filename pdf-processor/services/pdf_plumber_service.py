@@ -7,6 +7,7 @@ Based on POC implementation for table and form detection.
 import io
 import json
 import logging
+import asyncio
 import pdfplumber
 from typing import List, Tuple, Dict, Any
 from PyPDF2 import PdfWriter, PdfReader
@@ -271,3 +272,46 @@ class PDFPlumberService:
         except Exception as e:
             self.logger.error(f"Error in PDF-plumber processing for {file_key}: {e}")
             return None, []
+    
+    async def apply_pdf_plumber_to_pdf_async(self, pdf_data: bytes, file_key: str) -> Tuple[io.BytesIO, List[int]]:
+        """
+        Async version of PDF-plumber processing with improved parallel execution.
+        
+        Args:
+            pdf_data: PDF file as bytes
+            file_key: File identifier for logging
+            
+        Returns:
+            Tuple of (enhanced_pdf_stream, processed_page_numbers)
+        """
+        if pdf_data is None:
+            logger.error("Received None data for async PDF-plumber processing")
+            return None, []
+        
+        try:
+            # Convert to BytesIO for compatibility
+            pdf_stream = io.BytesIO(pdf_data)
+            
+            # Run the existing PDF-plumber logic in executor with better error propagation
+            loop = asyncio.get_event_loop()
+            
+            def _pdf_plumber_with_error_context():
+                try:
+                    return self.apply_pdf_plumber_to_pdf(pdf_stream, file_key)
+                except Exception as e:
+                    # Add context to the exception
+                    raise Exception(f"PDF-plumber processing failed for {file_key}: {str(e)}") from e
+            
+            result = await loop.run_in_executor(None, _pdf_plumber_with_error_context)
+            
+            if result and result[0]:
+                self.logger.info(f"✅ Async PDF-plumber completed successfully for: {file_key}")
+            else:
+                self.logger.warning(f"⚠️ PDF-plumber returned no results for: {file_key}")
+            
+            return result
+            
+        except Exception as e:
+            self.logger.error(f"❌ Error during async PDF-plumber processing for {file_key}: {e}")
+            # Re-raise with context preserved
+            raise
