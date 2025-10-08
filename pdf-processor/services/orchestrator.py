@@ -255,11 +255,14 @@ class Orchestrator:
                     try:
                         from services.metadata_service import MetadataService
                         metadata_service = MetadataService()
-                        metadata_service.create_metadata_for_file(
-                            chunk_key,
-                            self.CHUNKED_BUCKET
+                        success = metadata_service.create_metadata_for_file(
+                            s3_key=chunk_key,
+                            bucket=self.CHUNKED_BUCKET
                         )
-                        self.logger.info(f"Created metadata file for {chunk_key}")
+                        if success:
+                            self.logger.info(f"Created metadata file for {chunk_key}")
+                        else:
+                            self.logger.warning(f"Metadata creation returned False for {chunk_key}")
                     except Exception as e:
                         self.logger.error(f"Failed to create metadata file for {chunk_key}: {e}")
                         metrics.processing_errors.labels(error_type='metadata_failed', step='metadata_creation').inc()
