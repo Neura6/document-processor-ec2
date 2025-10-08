@@ -256,8 +256,11 @@ class ChunkingService:
             # Use enhanced data if available, otherwise use original
             data_to_chunk = enhanced_pdf_data if enhanced_pdf_data else pdf_data
             
+            # Convert bytes to BytesIO stream for chunk_pdf method
+            pdf_stream = BytesIO(data_to_chunk)
+            
             # Create chunks with processed metadata
-            chunks = self.chunk_pdf(data_to_chunk, key)
+            chunks = self.chunk_pdf(pdf_stream, key)
             
             processed_chunks = []
             for writer, metadata in chunks:
@@ -305,8 +308,11 @@ class ChunkingService:
             List of (chunk_stream, metadata) tuples
         """
         try:
+            # Convert bytes to BytesIO stream for chunk_pdf method
+            pdf_stream = BytesIO(pdf_data)
+            
             # Create chunks with direct metadata
-            chunks = self.chunk_pdf(pdf_data, key)
+            chunks = self.chunk_pdf(pdf_stream, key)
             
             direct_chunks = []
             for writer, metadata in chunks:

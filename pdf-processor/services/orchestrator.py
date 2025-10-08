@@ -445,8 +445,10 @@ class Orchestrator:
                 processed_data = pdf_data
             
             # Watermark removal
-            cleaned_data = self.watermark_service.remove_watermarks(processed_data)
-            if not cleaned_data:
+            cleaned_data = self.watermark_service.remove_watermarks(io.BytesIO(processed_data), file_key)
+            if cleaned_data and cleaned_data[0]:
+                cleaned_data = cleaned_data[0].getvalue()
+            else:
                 cleaned_data = processed_data
             
             return pdf_data, cleaned_data  # Return both original and processed
@@ -461,9 +463,9 @@ class Orchestrator:
             enhanced_data = pdf_data
             
             # OCR processing if needed
-            ocr_result = self.ocr_service.process_pdf(io.BytesIO(pdf_data), file_key)
-            if ocr_result:
-                enhanced_data = ocr_result.getvalue()
+            ocr_result = self.ocr_service.apply_ocr_to_pdf(io.BytesIO(pdf_data), file_key)
+            if ocr_result and ocr_result[0]:
+                enhanced_data = ocr_result[0].getvalue()
             
             # PDF-plumber processing
             plumber_result, processed_pages = self.pdf_plumber_service.apply_pdf_plumber_to_pdf(
