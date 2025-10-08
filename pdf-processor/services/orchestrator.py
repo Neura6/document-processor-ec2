@@ -413,6 +413,52 @@ class Orchestrator:
                 if direct_chunks:
                     metrics.direct_chunks_created_total.labels(folder=folder_name).inc(len(direct_chunks))
                 
+                # Stage 5: Upload chunks to S3 (PARALLEL PROCESSING)
+                upload_tasks = []
+                
+                # Upload processed chunks to chunked-rules-repository
+                for chunk_stream, metadata in processed_chunks:
+                    chunk_key = metadata['chunk_s3_uri'].replace(f's3://{self.CHUNKED_BUCKET}/', '')
+                    upload_tasks.append(
+                        self._upload_chunk_async(chunk_stream, self.CHUNKED_BUCKET, chunk_key, metadata)
+                    )
+                
+                # Upload direct chunks to rules-repository-alpha
+                for chunk_stream, metadata in direct_chunks:
+                    chunk_key = metadata['chunk_s3_uri_direct'].replace(f's3://{self.DIRECT_CHUNKED_BUCKET}/', '')
+                    upload_tasks.append(
+                        self._upload_chunk_async(chunk_stream, self.DIRECT_CHUNKED_BUCKET, chunk_key, metadata)
+                    )
+                
+                # Execute all uploads in parallel
+                if upload_tasks:
+                    upload_results = await asyncio.gather(*upload_tasks, return_exceptions=True)
+                    successful_uploads = sum(1 for result in upload_results if result is True)
+                    self.logger.info(f"📤 Uploaded {successful_uploads}/{len(upload_tasks)} chunks successfully")
+                
+                # Stage 6: KB Sync (if applicable)
+                try:
+                    from services.kb_sync_service import KBIngestionService
+                    kb_service = KBIngestionService()
+                    kb_mapping = kb_service.get_kb_mapping()
+                    
+                    if folder_name in kb_mapping:
+                        self.logger.info(f"🔄 Starting KB sync for folder: {folder_name}")
+                        kb_start = time.time()
+                        kb_result = await asyncio.get_event_loop().run_in_executor(
+                            self.executor, kb_service.sync_to_knowledge_base_simple, folder_name
+                        )
+                        kb_duration = time.time() - kb_start
+                        self.logger.info(f"✅ KB sync completed: {kb_result}, duration={kb_duration:.2f}s")
+                        
+                        if kb_result.get('status') == 'COMPLETE':
+                            metrics.record_kb_sync_success(folder_name)
+                    else:
+                        self.logger.info(f"ℹ️ No KB mapping found for folder: {folder_name}")
+                        
+                except Exception as e:
+                    self.logger.error(f"❌ KB sync failed for {folder_name}: {e}")
+                
                 # Record metrics
                 processing_time = time.time() - start_time
                 metrics.record_processing_time('total_async', processing_time)
@@ -461,6 +507,39 @@ class Orchestrator:
         except Exception as e:
             self.logger.error(f"Document preparation failed for {file_key}: {e}")
             return pdf_data, pdf_data  # Return original as fallback
+    
+    async def _upload_chunk_async(self, chunk_stream, bucket: str, chunk_key: str, metadata: dict) -> bool:
+        """Async chunk upload with metadata creation"""
+        try:
+            # Upload chunk to S3
+            chunk_data = chunk_stream.getvalue()
+            upload_success = await asyncio.get_event_loop().run_in_executor(
+                self.executor, self.s3_service.put_object, bucket, chunk_key, chunk_data
+            )
+            
+            if upload_success:
+                self.logger.info(f"📤 Uploaded chunk: {chunk_key}")
+                
+                # Create metadata file (only for processed chunks in chunked-rules-repository)
+                if bucket == self.CHUNKED_BUCKET:
+                    try:
+                        from services.metadata_service import MetadataService
+                        metadata_service = MetadataService()
+                        await asyncio.get_event_loop().run_in_executor(
+                            self.executor, metadata_service.create_metadata_for_file, chunk_key, bucket
+                        )
+                        self.logger.info(f"📝 Created metadata for: {chunk_key}")
+                    except Exception as e:
+                        self.logger.error(f"❌ Metadata creation failed for {chunk_key}: {e}")
+                
+                return True
+            else:
+                self.logger.error(f"❌ Upload failed for: {chunk_key}")
+                return False
+                
+        except Exception as e:
+            self.logger.error(f"❌ Chunk upload error for {chunk_key}: {e}")
+            return False
     
     def _enhance_document_sync(self, pdf_data: bytes, file_key: str) -> bytes:
         """Synchronous document enhancement (OCR + PDF-plumber)"""
