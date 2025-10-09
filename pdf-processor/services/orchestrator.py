@@ -344,7 +344,8 @@ class Orchestrator:
         """
         async with self.processing_semaphore:
             start_time = time.time()
-            folder_name = sanitize_label_value(file_key.split('/')[0])
+            original_folder_name = file_key.split('/')[0]  # Original folder name for KB sync
+            folder_name = sanitize_label_value(original_folder_name)  # Sanitized for metrics
             
             try:
                 self.logger.info(f"🚀 Starting async processing: {file_key}")
@@ -504,11 +505,11 @@ class Orchestrator:
                     )
                     kb_mapping = kb_service.get_kb_mapping()
                     
-                    if folder_name in kb_mapping:
-                        self.logger.info(f"🔄 Starting KB sync for folder: {folder_name}")
+                    if original_folder_name in kb_mapping:
+                        self.logger.info(f"🔄 Starting KB sync for folder: {original_folder_name}")
                         kb_start = time.time()
                         kb_result = await asyncio.get_event_loop().run_in_executor(
-                            self.executor, kb_service.sync_to_knowledge_base_simple, folder_name
+                            self.executor, kb_service.sync_to_knowledge_base_simple, original_folder_name
                         )
                         kb_duration = time.time() - kb_start
                         self.logger.info(f"✅ KB sync completed: {kb_result}, duration={kb_duration:.2f}s")
@@ -516,7 +517,7 @@ class Orchestrator:
                         if kb_result.get('status') == 'COMPLETE':
                             metrics.record_kb_sync_success(folder_name)
                     else:
-                        self.logger.info(f"ℹ️ No KB mapping found for folder: {folder_name}")
+                        self.logger.info(f"ℹ️ No KB mapping found for folder: {original_folder_name}")
                         
                 except Exception as e:
                     self.logger.error(f"❌ KB sync failed for {folder_name}: {e}")
