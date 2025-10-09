@@ -66,6 +66,17 @@ class ChunkingService:
                 if len(parts) > 6:
                     metadata['document_sub-category'] = parts[5]
                 metadata['document_name'] = os.path.splitext(parts[-1])[0]
+        elif folder == 'Banking-Regulations-Bahrain' and len(parts) > 1 and parts[1] == 'Bahrain':
+            if len(parts) > 2:
+                metadata['country'] = parts[1]
+                metadata['volume'] = parts[2]
+                if len(parts) > 4:
+                    metadata['document_type'] = parts[3]
+                if len(parts) > 5:
+                    metadata['document_category'] = parts[4]
+                if len(parts) > 6:
+                    metadata['document_sub-category'] = parts[5]
+                metadata['document_name'] = os.path.splitext(parts[-1])[0]
         elif folder in ['accounting-standards','commercial-laws','Banking Regulations','Direct Taxes','Capital Market Regulations','Auditing Standards','Insurance','Labour Law']:
             if len(parts) > 1:
                 metadata['country'] = parts[1]

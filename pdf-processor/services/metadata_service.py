@@ -16,9 +16,10 @@ logger = logging.getLogger(__name__)
 class MetadataService:
     """Service for creating metadata files for chunked PDFs."""
     
-    # Lists for rule-based handling
     ONLY_COUNTRY_LIST = [
         'accounting-standards',
+        'commercial-laws',
+        'Auditing Standards',
         'Capital Market Regulations',
         'Direct Taxes',
         'Indirect Taxes',
@@ -61,7 +62,7 @@ class MetadataService:
             self.logger.error(f"Error creating metadata file for {key}: {str(e)}")
             return False
     
-    def determine_metadata_attributes(self, document_type: str, country: str, complexity: Optional[str] = None) -> Dict:
+    def determine_metadata_attributes(self, document_type: str, country: str, complexity: Optional[str] = None, volume: Optional[str] = None) -> Dict:
         """
         Determine metadata attributes based on document type and folder structure.
         
@@ -69,6 +70,7 @@ class MetadataService:
             document_type: Document type from folder structure
             country: Country from folder structure
             complexity: Complexity level from folder structure
+            volume: Volume level from folder structure (for Banking Regulations Bahrain)
             
         Returns:
             Dict: Metadata attributes to add
@@ -83,6 +85,11 @@ class MetadataService:
             metadata_to_add = {"country": country}
             if complexity:
                 metadata_to_add["complexity"] = complexity
+
+        elif document_type == 'Banking-Regulations-Bahrain':
+            metadata_to_add = {"country": country}
+            if volume:
+                metadata_to_add["volume"] = volume
 
         elif document_type in self.ONLY_COUNTRY_LIST:
             metadata_to_add = {"country": country}
@@ -112,10 +119,20 @@ class MetadataService:
             
             document_type = parts[0]
             country = parts[1] if len(parts) > 1 else None
-            complexity = parts[2] if len(parts) > 2 else None
+            
+            # Handle different folder structures
+            complexity = None
+            volume = None
+            
+            if document_type == 'Banking-Regulations-Bahrain' and country == 'Bahrain':
+                # For Banking Regulations Bahrain: folder/country/volume/...
+                volume = parts[2] if len(parts) > 2 else None
+            else:
+                # For other folders: folder/country/complexity/...
+                complexity = parts[2] if len(parts) > 2 else None
             
             # Determine metadata attributes
-            metadata_attributes = self.determine_metadata_attributes(document_type, country, complexity)
+            metadata_attributes = self.determine_metadata_attributes(document_type, country, complexity, volume)
             
             if not metadata_attributes:
                 self.logger.info(f"No metadata attributes to add for {s3_key}")
@@ -148,13 +165,24 @@ class MetadataService:
 
             document_type = parts[0]
             country = parts[1]
-            complexity = parts[2] if len(parts) > 2 else None
-
-            self.logger.info(f"Scanning S3 folder: bucket={bucket}, prefix={prefix}")
-            self.logger.info(f"Extracted document_type={document_type}, country={country}, complexity={complexity}")
+            
+            # Handle different folder structures
+            complexity = None
+            volume = None
+            
+            if document_type == 'Banking-Regulations-Bahrain' and country == 'Bahrain':
+                # For Banking Regulations Bahrain: folder/country/volume/...
+                volume = parts[2] if len(parts) > 2 else None
+                self.logger.info(f"Scanning S3 folder: bucket={bucket}, prefix={prefix}")
+                self.logger.info(f"Extracted document_type={document_type}, country={country}, volume={volume}")
+            else:
+                # For other folders: folder/country/complexity/...
+                complexity = parts[2] if len(parts) > 2 else None
+                self.logger.info(f"Scanning S3 folder: bucket={bucket}, prefix={prefix}")
+                self.logger.info(f"Extracted document_type={document_type}, country={country}, complexity={complexity}")
 
             # Determine metadata based on rules
-            metadata_to_add = self.determine_metadata_attributes(document_type, country, complexity)
+            metadata_to_add = self.determine_metadata_attributes(document_type, country, complexity, volume)
 
             if not metadata_to_add:
                 self.logger.info("No metadata attributes to add. Exiting...")

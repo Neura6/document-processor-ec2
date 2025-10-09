@@ -83,7 +83,8 @@ class MetadataPageService:
                 'state_category': 'State Category',
                 'State_category': 'State Category',  # Handle both capitalizations
                 'Standard_type': 'Standard Type',  # Handle capitalization inconsistency
-                'complexity': 'Complexity'
+                'complexity': 'Complexity',
+                'volume': 'Volume'
             }
             
             for key, label in field_labels.items():
