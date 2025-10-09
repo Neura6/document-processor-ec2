@@ -47,8 +47,8 @@ class KBMappingConfig:
     'Insurance-caselaws': {'id': 'IUB7BI5IXQ', 'data_source_id': 'CB2LPPFQUW'},
     'usecase-reports-4': {'id': 'WHF3OXB1MQ', 'data_source_id': 'CN63WXZKZW'},
     'commercial-case-laws': {'id': 'DQ6AIARMNQ', 'data_source_id': 'NXNCQID5NX'},
-    'test':{'id':'VDAPHQ1JTN','data_source_id':'EAVX8UD6RY'}
-
+    'test':{'id':'VDAPHQ1JTN','data_source_id':'EAVX8UD6RY'},
+    'Banking-Regulations-Bahrain':{'id':'DENKRCJT22','data_source_id':'CZL093W4EF'}
 }
     
     CHUNKED_BUCKET = 'chunked-rules-repository'
