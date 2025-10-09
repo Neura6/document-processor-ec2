@@ -246,7 +246,7 @@ class ChunkingService:
         
         Args:
             pdf_data: Original PDF data
-            key: S3 key path
+            key: S3 key path (e.g., "test/space testing folder/NBB Q2 2025.pdf")
             enhanced_pdf_data: Enhanced PDF data (OCR + PDF-plumber processed)
             
         Returns:
@@ -268,20 +268,33 @@ class ChunkingService:
                 metadata['processing_method'] = 'processed'
                 metadata['chunk_type'] = 'processed'
                 
-                # Generate dual URIs for processed chunks
-                base_filename = os.path.splitext(os.path.basename(key))[0]
+                # Extract folder path and filename properly
+                folder_path = '/'.join(key.split('/')[:-1]) if '/' in key else ''
+                original_filename = key.split('/')[-1]
+                base_filename = os.path.splitext(original_filename)[0]
                 page_num = metadata.get('page_number', 1)
                 
-                # Dual URIs for processed chunks
-                # 1. Processed chunk URI (chunked-rules-repository) with _processed suffix in S3 key
-                processed_filename = f"{base_filename}_page_{page_num}.pdf"  # Keep original filename
-                processed_key_with_suffix = key.replace(os.path.basename(key), f"{base_filename}_page_{page_num}_processed.pdf")
-                metadata['chunk_s3_uri_processed'] = f"s3://{CHUNKED_BUCKET}/{processed_key_with_suffix}"
+                # Generate normalized filename for S3 keys (replace spaces with underscores)
+                normalized_base_filename = base_filename.replace(' ', '_')
                 
-                # 2. Direct chunk URI (rules-repository-alpha) for cross-reference
-                direct_filename = f"{base_filename}_page_{page_num}.pdf"
-                direct_key = key.replace(os.path.basename(key), direct_filename)
-                metadata['chunk_s3_uri'] = f"s3://{DIRECT_CHUNKED_BUCKET}/{direct_key}"
+                # Generate chunk filenames
+                chunk_filename = f"{normalized_base_filename}_page_{page_num}.pdf"
+                processed_chunk_filename = f"{normalized_base_filename}_page_{page_num}_processed.pdf"
+                
+                # Build full S3 keys with folder structure preserved
+                if folder_path:
+                    chunk_key = f"{folder_path}/{chunk_filename}"
+                    processed_chunk_key = f"{folder_path}/{processed_chunk_filename}"
+                else:
+                    chunk_key = chunk_filename
+                    processed_chunk_key = processed_chunk_filename
+                
+                # Dual URIs for processed chunks (stored in chunked-rules-repository)
+                # 1. chunk_s3_uri_processed: Points to the processed chunk in chunked-rules-repository
+                metadata['chunk_s3_uri_processed'] = f"s3://{CHUNKED_BUCKET}/{processed_chunk_key}"
+                
+                # 2. chunk_s3_uri: Points to the corresponding direct chunk in rules-repository-alpha
+                metadata['chunk_s3_uri'] = f"s3://{DIRECT_CHUNKED_BUCKET}/{chunk_key}"
                 
                 # Convert writer to BytesIO
                 chunk_stream = BytesIO()
@@ -289,6 +302,15 @@ class ChunkingService:
                 chunk_stream.seek(0)
                 
                 processed_chunks.append((chunk_stream, metadata))
+                
+                # Debug logging
+                self.logger.info(f"Processed chunk metadata:")
+                self.logger.info(f"  Original key: {key}")
+                self.logger.info(f"  Folder path: {folder_path}")
+                self.logger.info(f"  Base filename: {base_filename}")
+                self.logger.info(f"  Normalized: {normalized_base_filename}")
+                self.logger.info(f"  chunk_s3_uri_processed: {metadata['chunk_s3_uri_processed']}")
+                self.logger.info(f"  chunk_s3_uri: {metadata['chunk_s3_uri']}")
                 
             self.logger.info(f"Created {len(processed_chunks)} processed chunks for {key}")
             return processed_chunks
@@ -303,7 +325,7 @@ class ChunkingService:
         
         Args:
             pdf_data: Original PDF data
-            key: S3 key path
+            key: S3 key path (e.g., "test/space testing folder/NBB Q2 2025.pdf")
             
         Returns:
             List of (chunk_stream, metadata) tuples
@@ -321,13 +343,27 @@ class ChunkingService:
                 metadata['processing_method'] = 'direct'
                 metadata['chunk_type'] = 'direct'
                 
-                # Generate URI for direct chunks (rules-repository-alpha only)
-                base_filename = os.path.splitext(os.path.basename(key))[0]
+                # Extract folder path and filename properly
+                folder_path = '/'.join(key.split('/')[:-1]) if '/' in key else ''
+                original_filename = key.split('/')[-1]
+                base_filename = os.path.splitext(original_filename)[0]
                 page_num = metadata.get('page_number', 1)
                 
-                direct_filename = f"{base_filename}_page_{page_num}.pdf"
-                direct_key = key.replace(os.path.basename(key), direct_filename)
-                metadata['chunk_s3_uri'] = f"s3://{DIRECT_CHUNKED_BUCKET}/{direct_key}"
+                # Generate normalized filename for S3 keys (replace spaces with underscores)
+                normalized_base_filename = base_filename.replace(' ', '_')
+                
+                # Generate chunk filename
+                chunk_filename = f"{normalized_base_filename}_page_{page_num}.pdf"
+                
+                # Build full S3 key with folder structure preserved
+                if folder_path:
+                    chunk_key = f"{folder_path}/{chunk_filename}"
+                else:
+                    chunk_key = chunk_filename
+                
+                # Single URI for direct chunks (stored in rules-repository-alpha)
+                # chunk_s3_uri: Points to this direct chunk in rules-repository-alpha
+                metadata['chunk_s3_uri'] = f"s3://{DIRECT_CHUNKED_BUCKET}/{chunk_key}"
                 
                 # Convert writer to BytesIO
                 chunk_stream = BytesIO()
@@ -335,6 +371,14 @@ class ChunkingService:
                 chunk_stream.seek(0)
                 
                 direct_chunks.append((chunk_stream, metadata))
+                
+                # Debug logging
+                self.logger.info(f"Direct chunk metadata:")
+                self.logger.info(f"  Original key: {key}")
+                self.logger.info(f"  Folder path: {folder_path}")
+                self.logger.info(f"  Base filename: {base_filename}")
+                self.logger.info(f"  Normalized: {normalized_base_filename}")
+                self.logger.info(f"  chunk_s3_uri: {metadata['chunk_s3_uri']}")
                 
             self.logger.info(f"Created {len(direct_chunks)} direct chunks for {key}")
             return direct_chunks
