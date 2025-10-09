@@ -102,41 +102,18 @@ class ChunkingService:
         metadata['page_number'] = page_number
         metadata['total_pages'] = total_pages
         
-        # Generate chunk_s3_uri EXACTLY as orchestrator generates chunk_key
-        # Use cleaned_key if provided (from orchestrator), otherwise use original key
-        actual_key = cleaned_key if cleaned_key else key
-        
-        # Extract folder path and filename exactly as orchestrator does
-        folder_path = '/'.join(actual_key.split('/')[:-1]) if '/' in actual_key else ''
-        filename_only = actual_key.split('/')[-1]
-        base_name = os.path.splitext(filename_only)[0]
-        
-        # Generate chunk filename with normalized base_name (only filename, not folder path)
-        normalized_base_name = base_name.replace(' ', '_')  # Only normalize the filename
-        
-        # Generate chunk_s3_uri with preserved folder structure
-        if folder_path:
-            chunk_key = f"{folder_path}/{normalized_base_name}_page_{page_number}.pdf"
-        else:
-            chunk_key = f"{normalized_base_name}_page_{page_number}.pdf"
-        
-        # Create S3 URI with preserved folder structure
-        chunk_s3_uri = f"s3://{CHUNKED_BUCKET}/{chunk_key}"
-        metadata['chunk_s3_uri'] = chunk_s3_uri
+        # NOTE: chunk_s3_uri generation is now handled in the specific async methods
+        # (chunk_pdf_processed and chunk_pdf_direct) to support dual URI patterns
+        # This method only extracts basic metadata, URIs are added later
             
         # CRITICAL DEBUG LOGGING - will show in logs
         self.logger.info(f"=== METADATA EXTRACTION DEBUG ===")
         self.logger.info(f"INPUT KEY: {key}")
         self.logger.info(f"CLEANED KEY: {cleaned_key}")
-        self.logger.info(f"ACTUAL KEY USED: {actual_key}")
         self.logger.info(f"PARTS: {parts}")
         self.logger.info(f"FOLDER: {folder}")
-        self.logger.info(f"FOLDER_PATH: {folder_path}")
-        self.logger.info(f"BASE_NAME: {base_name}")
-        self.logger.info(f"CHUNK_KEY: {chunk_key}")
         self.logger.info(f"COUNTRY: {metadata.get('country', 'NOT FOUND')}")
         self.logger.info(f"DOCUMENT_NAME: {metadata.get('document_name', 'NOT FOUND')}")
-        self.logger.info(f"FINAL S3 URI: {metadata['chunk_s3_uri']}")
         self.logger.info(f"COMPLETE METADATA: {metadata}")
         self.logger.info(f"=== END DEBUG ===")
 
