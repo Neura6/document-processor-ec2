@@ -233,14 +233,21 @@ class ChunkingService:
             # Use enhanced data if available, otherwise use original
             data_to_chunk = enhanced_pdf_data if enhanced_pdf_data else pdf_data
             
-            # Convert bytes to BytesIO stream for chunk_pdf method
+            # Convert bytes to BytesIO stream
             pdf_stream = BytesIO(data_to_chunk)
+            pdf_stream.seek(0)
+            reader = PdfReader(pdf_stream)
             
-            # Create chunks with processed metadata
-            chunks = self.chunk_pdf(pdf_stream, key)
+            if reader.is_encrypted:
+                reader.decrypt('')
             
+            total_pages = len(reader.pages)
             processed_chunks = []
-            for writer, metadata in chunks:
+            
+            for page_num in range(total_pages):
+                # Get base metadata for this specific page
+                metadata = self.extract_metadata(key, page_num + 1, total_pages)
+                
                 # Update metadata for processed stream
                 metadata['processing_method'] = 'processed'
                 metadata['chunk_type'] = 'processed'
@@ -249,14 +256,14 @@ class ChunkingService:
                 folder_path = '/'.join(key.split('/')[:-1]) if '/' in key else ''
                 original_filename = key.split('/')[-1]
                 base_filename = os.path.splitext(original_filename)[0]
-                page_num = metadata.get('page_number', 1)
+                page_number = metadata.get('page_number', 1)
                 
                 # Generate normalized filename for S3 keys (replace spaces with underscores)
                 normalized_base_filename = base_filename.replace(' ', '_')
                 
                 # Generate chunk filenames
-                chunk_filename = f"{normalized_base_filename}_page_{page_num}.pdf"
-                processed_chunk_filename = f"{normalized_base_filename}_page_{page_num}_processed.pdf"
+                chunk_filename = f"{normalized_base_filename}_page_{page_number}.pdf"
+                processed_chunk_filename = f"{normalized_base_filename}_page_{page_number}_processed.pdf"
                 
                 # Build full S3 keys with folder structure preserved
                 if folder_path:
@@ -272,6 +279,14 @@ class ChunkingService:
                 
                 # 2. chunk_s3_uri: Points to the corresponding direct chunk in rules-repository-alpha
                 metadata['chunk_s3_uri'] = f"s3://{DIRECT_CHUNKED_BUCKET}/{chunk_key}"
+                
+                # NOW create the metadata page with the complete metadata including URIs
+                metadata_page = self.metadata_page_service.create_metadata_page(metadata)
+                
+                # Create writer and add pages
+                writer = PdfWriter()
+                writer.add_page(metadata_page)  # Metadata page first
+                writer.add_page(reader.pages[page_num])  # Content page second
                 
                 # Convert writer to BytesIO
                 chunk_stream = BytesIO()
@@ -308,14 +323,21 @@ class ChunkingService:
             List of (chunk_stream, metadata) tuples
         """
         try:
-            # Convert bytes to BytesIO stream for chunk_pdf method
+            # Convert bytes to BytesIO stream
             pdf_stream = BytesIO(pdf_data)
+            pdf_stream.seek(0)
+            reader = PdfReader(pdf_stream)
             
-            # Create chunks with direct metadata
-            chunks = self.chunk_pdf(pdf_stream, key)
+            if reader.is_encrypted:
+                reader.decrypt('')
             
+            total_pages = len(reader.pages)
             direct_chunks = []
-            for writer, metadata in chunks:
+            
+            for page_num in range(total_pages):
+                # Get base metadata for this specific page
+                metadata = self.extract_metadata(key, page_num + 1, total_pages)
+                
                 # Update metadata for direct stream
                 metadata['processing_method'] = 'direct'
                 metadata['chunk_type'] = 'direct'
@@ -324,13 +346,13 @@ class ChunkingService:
                 folder_path = '/'.join(key.split('/')[:-1]) if '/' in key else ''
                 original_filename = key.split('/')[-1]
                 base_filename = os.path.splitext(original_filename)[0]
-                page_num = metadata.get('page_number', 1)
+                page_number = metadata.get('page_number', 1)
                 
                 # Generate normalized filename for S3 keys (replace spaces with underscores)
                 normalized_base_filename = base_filename.replace(' ', '_')
                 
                 # Generate chunk filename
-                chunk_filename = f"{normalized_base_filename}_page_{page_num}.pdf"
+                chunk_filename = f"{normalized_base_filename}_page_{page_number}.pdf"
                 
                 # Build full S3 key with folder structure preserved
                 if folder_path:
@@ -341,6 +363,14 @@ class ChunkingService:
                 # Single URI for direct chunks (stored in rules-repository-alpha)
                 # chunk_s3_uri: Points to this direct chunk in rules-repository-alpha
                 metadata['chunk_s3_uri'] = f"s3://{DIRECT_CHUNKED_BUCKET}/{chunk_key}"
+                
+                # NOW create the metadata page with the complete metadata including URI
+                metadata_page = self.metadata_page_service.create_metadata_page(metadata)
+                
+                # Create writer and add pages
+                writer = PdfWriter()
+                writer.add_page(metadata_page)  # Metadata page first
+                writer.add_page(reader.pages[page_num])  # Content page second
                 
                 # Convert writer to BytesIO
                 chunk_stream = BytesIO()
