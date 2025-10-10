@@ -11,6 +11,7 @@ import re
 import time
 import logging
 import os
+import csv
 import threading
 try:
     import fcntl
@@ -18,6 +19,7 @@ except ImportError:
     # Windows doesn't have fcntl, use alternative locking
     fcntl = None
 from typing import Dict, List, Any, Optional
+from datetime import datetime
 
 # Setup logging
 logger = logging.getLogger(__name__)
@@ -48,7 +50,9 @@ class KBMappingConfig:
     'usecase-reports-4': {'id': 'WHF3OXB1MQ', 'data_source_id': 'CN63WXZKZW'},
     'commercial-case-laws': {'id': 'DQ6AIARMNQ', 'data_source_id': 'NXNCQID5NX'},
     'test':{'id':'VDAPHQ1JTN','data_source_id':'EAVX8UD6RY'},
-    'Banking-Regulations-Bahrain':{'id':'DENKRCJT22','data_source_id':'CZL093W4EF'}
+    'Banking-Regulations-Bahrain':{'id':'DENKRCJT22','data_source_id':'CZL093W4EF'},
+    'Transfer-Pricing-Global':{'id':'JKO9EJMUAQ','data_source_id':'V0GJT5LKPR'},
+    'Indirect Taxes-test':{'id':'EAPMVRJVEK','data_source_id':'8J5DW43THM'}
 }
     
     CHUNKED_BUCKET = 'chunked-rules-repository'
@@ -88,6 +92,85 @@ class KBIngestionService:
         
         # Pattern for detecting token limit errors
         self.token_error_pattern = re.compile(r'file\s+([^\s]+)\s+.*token\s+limit', re.IGNORECASE)
+        
+        # CSV logging for KB sync errors
+        self.csv_log_dir = '/tmp/kb_sync_logs'
+        os.makedirs(self.csv_log_dir, exist_ok=True)
+        self.csv_lock = threading.Lock()
+        
+    def _log_kb_sync_error_to_csv(self, s3_path: str, error_type: str, error_message: str, 
+                                 folder: str, kb_id: str, data_source_id: str) -> None:
+        """Log KB sync errors to CSV file with thread-safe access"""
+        try:
+            with self.csv_lock:
+                csv_file = os.path.join(self.csv_log_dir, 'kb_sync_errors.csv')
+                file_exists = os.path.isfile(csv_file)
+                
+                with open(csv_file, 'a', newline='', encoding='utf-8') as f:
+                    writer = csv.writer(f)
+                    
+                    # Write header if file doesn't exist
+                    if not file_exists:
+                        writer.writerow([
+                            'timestamp',
+                            's3_path',
+                            'error_type',
+                            'error_message',
+                            'folder',
+                            'kb_id',
+                            'data_source_id',
+                            'chunked_bucket'
+                        ])
+                    
+                    # Write error record
+                    writer.writerow([
+                        datetime.now().isoformat(),
+                        s3_path,
+                        error_type,
+                        error_message,
+                        folder,
+                        kb_id,
+                        data_source_id,
+                        self.config.CHUNKED_BUCKET
+                    ])
+                    
+                logger.info(f"[KB-SYNC-CSV] ✏️ Logged error for: {s3_path}")
+                
+        except Exception as e:
+            logger.error(f"[KB-SYNC-CSV] ❌ Failed to write CSV log: {str(e)}")
+    
+    def _extract_s3_path_from_error(self, error_message: str, folder: str) -> str:
+        """Extract S3 path from error message for chunked-rules-repository"""
+        try:
+            # Look for S3 paths in error messages
+            s3_pattern = re.compile(r's3://[^\s]+', re.IGNORECASE)
+            matches = s3_pattern.findall(error_message)
+            if matches:
+                return matches[0]
+            
+            # If no S3 path found, construct from folder
+            return f"s3://{self.config.CHUNKED_BUCKET}/{folder}/"
+            
+        except Exception:
+            return f"s3://{self.config.CHUNKED_BUCKET}/{folder}/"
+    
+    def _log_token_limit_errors(self, failed_files: List[str], folder: str, kb_info: Dict[str, str]) -> None:
+        """Log token limit errors to CSV with proper S3 paths"""
+        for file_path in failed_files:
+            # Convert to chunked-rules-repository path
+            if file_path.startswith('s3://'):
+                s3_path = file_path
+            else:
+                s3_path = f"s3://{self.config.CHUNKED_BUCKET}/{file_path}"
+            
+            self._log_kb_sync_error_to_csv(
+                s3_path=s3_path,
+                error_type='TOKEN_LIMIT_EXCEEDED',
+                error_message=f'File exceeds AWS Bedrock token limit (8192 tokens)',
+                folder=folder,
+                kb_id=kb_info['id'],
+                data_source_id=kb_info['data_source_id']
+            )
 
     def _acquire_kb_lock(self, kb_id: str, timeout: int = 3600) -> bool:
         """
@@ -433,10 +516,27 @@ class KBIngestionService:
                                     failed_files_due_to_tokens.append(failed_file)
                                     logger.warning(f"KB_SYNC: Token limit exceeded for file: {failed_file}")
 
+                    # Extract all failed files for CSV logging
+                    failed_files = self._extract_failed_files_from_error(str(failure_reasons))
+                    failed_files_due_to_tokens.extend(failed_files)
+                    failed_files_due_to_tokens = list(set(failed_files_due_to_tokens))  # Remove duplicates
+
                     if failed_files_due_to_tokens:
                         logger.warning(f"KB_SYNC: {len(failed_files_due_to_tokens)} files failed due to token limits")
+                        # Log token limit errors to CSV
+                        self._log_token_limit_errors(failed_files_due_to_tokens, kb_info['id'], kb_info)
                         return {'status': 'FAILED_TOKEN_ERROR', 'failed_files': failed_files_due_to_tokens, 'duration': elapsed}
                     else:
+                        # Log general failure to CSV
+                        s3_path = f"s3://{self.config.CHUNKED_BUCKET}/{kb_info['id']}/"
+                        self._log_kb_sync_error_to_csv(
+                            s3_path=s3_path,
+                            error_type='KB_SYNC_FAILED',
+                            error_message=str(failure_reasons),
+                            folder=kb_info['id'],
+                            kb_id=kb_info['id'],
+                            data_source_id=kb_info['data_source_id']
+                        )
                         return {'status': 'FAILED_OTHER_ERROR', 'message': f'Ingestion job failed: {failure_reasons}', 'duration': elapsed}
 
                 elif status == 'IN_PROGRESS':
@@ -449,18 +549,42 @@ class KBIngestionService:
             except Exception as e:
                 elapsed = time.time() - start_time
                 logger.error(f"[KB-SYNC] 🔥 Error checking job status for {job_id}: {str(e)} (after {elapsed:.0f}s)")
+                
+                # Log polling errors to CSV
+                s3_path = f"s3://{self.config.CHUNKED_BUCKET}/{kb_info['id']}/"
+                self._log_kb_sync_error_to_csv(
+                    s3_path=s3_path,
+                    error_type='POLLING_ERROR',
+                    error_message=str(e),
+                    folder=kb_info['id'],
+                    kb_id=kb_info['id'],
+                    data_source_id=kb_info['data_source_id']
+                )
+                
                 if failed_files_due_to_tokens:
                     return {'status': 'ERROR_DURING_WAIT', 'failed_files': failed_files_due_to_tokens, 'polling_error': str(e), 'duration': elapsed}
                 else:
-                    raise
+                    return {'status': 'POLLING_ERROR', 'error': str(e), 'duration': elapsed}
 
         # Timeout
         elapsed = time.time() - start_time
         logger.error(f"[KB-SYNC] ⏰ TIMEOUT! Job {job_id} timed out after {elapsed:.0f}s ({max_attempts} attempts)")
+        
+        # Log timeout errors to CSV
+        s3_path = f"s3://{self.config.CHUNKED_BUCKET}/{kb_info['id']}/"
+        self._log_kb_sync_error_to_csv(
+            s3_path=s3_path,
+            error_type='TIMEOUT',
+            error_message=f'KB sync job timed out after {elapsed:.0f}s',
+            folder=kb_info['id'],
+            kb_id=kb_info['id'],
+            data_source_id=kb_info['data_source_id']
+        )
+        
         if failed_files_due_to_tokens:
             return {'status': 'TIMEOUT_TOKEN_ERROR', 'failed_files': failed_files_due_to_tokens, 'timeout': True, 'duration': elapsed}
         else:
-            raise Exception(f"Ingestion job {job_id} timed out after {max_attempts} attempts")
+            return {'status': 'TIMEOUT', 'message': f'Ingestion job timed out after {elapsed:.0f}s', 'duration': elapsed}
 
     def move_s3_object(self, source_bucket: str, source_key: str, dest_bucket: str, dest_key: str) -> bool:
         """Move S3 object from source to destination"""
@@ -491,3 +615,94 @@ class KBIngestionService:
     def get_kb_mapping(self) -> Dict[str, Dict[str, str]]:
         """Get the KB mapping configuration"""
         return self.config.KB_MAPPING
+    
+    def _log_kb_sync_error_to_csv(self, s3_path: str, error_type: str, error_message: str, 
+                                 folder: str, kb_id: str, data_source_id: str) -> None:
+        """Log KB sync errors to CSV file with thread-safe access"""
+        try:
+            with self.csv_lock:
+                csv_file = os.path.join(self.csv_log_dir, 'kb_sync_errors.csv')
+                file_exists = os.path.isfile(csv_file)
+                
+                with open(csv_file, 'a', newline='', encoding='utf-8') as f:
+                    writer = csv.writer(f)
+                    
+                    # Write header if file doesn't exist
+                    if not file_exists:
+                        writer.writerow([
+                            'timestamp',
+                            's3_path',
+                            'error_type',
+                            'error_message',
+                            'folder',
+                            'kb_id',
+                            'data_source_id',
+                            'chunked_bucket'
+                        ])
+                    
+                    # Write error record
+                    writer.writerow([
+                        datetime.now().isoformat(),
+                        s3_path,
+                        error_type,
+                        error_message,
+                        folder,
+                        kb_id,
+                        data_source_id,
+                        self.config.CHUNKED_BUCKET
+                    ])
+                    
+                logger.info(f"[KB-SYNC-CSV] ✏️ Logged error for: {s3_path}")
+                
+        except Exception as e:
+            logger.error(f"[KB-SYNC-CSV] ❌ Failed to write CSV log: {str(e)}")
+    
+    def _extract_failed_files_from_error(self, error_message: str) -> List[str]:
+        """Extract failed file paths from error messages"""
+        failed_files = []
+        
+        # Look for file paths in error messages
+        file_patterns = [
+            r'file\s+([^\s]+\.pdf)',
+            r'([^\s]+\.pdf):.*token.*limit',
+            r'([^\s]+\.pdf).*exceeds.*token.*limit'
+        ]
+        
+        for pattern in file_patterns:
+            matches = re.findall(pattern, error_message, re.IGNORECASE)
+            failed_files.extend(matches)
+        
+        return list(set(failed_files))  # Remove duplicates
+    
+    def _log_token_limit_errors(self, failed_files: List[str], folder: str, kb_info: Dict[str, str]) -> None:
+        """Log token limit errors to CSV with proper S3 paths"""
+        for file_path in failed_files:
+            # Convert to chunked-rules-repository path
+            if file_path.startswith('s3://'):
+                s3_path = file_path
+            else:
+                s3_path = f"s3://{self.config.CHUNKED_BUCKET}/{folder}/{file_path}"
+            
+            self._log_kb_sync_error_to_csv(
+                s3_path=s3_path,
+                error_type='TOKEN_LIMIT_EXCEEDED',
+                error_message='File exceeds AWS Bedrock token limit (8192 tokens)',
+                folder=folder,
+                kb_id=kb_info['id'],
+                data_source_id=kb_info['data_source_id']
+            )
+    
+    def _extract_s3_path_from_error(self, error_message: str, folder: str) -> str:
+        """Extract S3 path from error message for chunked-rules-repository"""
+        try:
+            # Look for S3 paths in error messages
+            s3_pattern = re.compile(r's3://[^\s]+', re.IGNORECASE)
+            matches = s3_pattern.findall(error_message)
+            if matches:
+                return matches[0]
+            
+            # If no S3 path found, construct from folder
+            return f"s3://{self.config.CHUNKED_BUCKET}/{folder}/"
+            
+        except Exception:
+            return f"s3://{self.config.CHUNKED_BUCKET}/{folder}/"
