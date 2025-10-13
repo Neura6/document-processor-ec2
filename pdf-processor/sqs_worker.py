@@ -346,10 +346,11 @@ class SQSWorker:
             while True:
                 try:
                     # Get messages from SQS
+                    logger.info("🔍 Polling SQS for messages...")
                     messages = self.poll_sqs()
                     
                     if messages:
-                        logger.info(f"Received {len(messages)} messages from SQS")
+                        logger.info(f"📥 Received {len(messages)} messages from SQS")
                         
                         # Process messages asynchronously
                         processed_receipts = await self.process_messages_async(messages)
@@ -358,7 +359,8 @@ class SQSWorker:
                         if processed_receipts:
                             self.delete_messages(processed_receipts)
                     else:
-                        logger.debug("No messages, sleeping...")
+                        queue_depth = self.get_queue_depth()
+                        logger.info(f"📊 No messages received. Queue depth: {queue_depth}. Waiting 5 seconds...")
                         await asyncio.sleep(5)
                         
                 except KeyboardInterrupt:
