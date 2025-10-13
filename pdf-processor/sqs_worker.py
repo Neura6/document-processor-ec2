@@ -353,21 +353,37 @@ class SQSWorker:
                         logger.info(f"📥 Received {len(messages)} messages from SQS")
                         
                         # Process messages asynchronously
-                        processed_receipts = await self.process_messages_async(messages)
-                        
-                        # Delete processed messages
-                        if processed_receipts:
-                            self.delete_messages(processed_receipts)
+                        try:
+                            processed_receipts = await self.process_messages_async(messages)
+                            
+                            # Delete processed messages
+                            if processed_receipts:
+                                self.delete_messages(processed_receipts)
+                                logger.info(f"✅ Deleted {len(processed_receipts)} processed messages")
+                            
+                            logger.info("🔄 Batch processing complete, continuing to poll...")
+                            
+                        except Exception as process_error:
+                            logger.error(f"❌ Error in message processing: {process_error}")
+                            logger.info("🔄 Continuing to poll despite processing error...")
+                            
                     else:
                         queue_depth = self.get_queue_depth()
                         logger.info(f"📊 No messages received. Queue depth: {queue_depth}. Waiting 5 seconds...")
                         await asyncio.sleep(5)
+                    
+                    # Ensure we always continue the loop
+                    logger.debug("🔁 Polling cycle complete, continuing...")
                         
                 except KeyboardInterrupt:
                     logger.info("Async worker stopped by user")
                     break
                 except Exception as e:
-                    logger.error(f"Async worker error: {str(e)}")
+                    logger.error(f"❌ Critical async worker error: {str(e)}")
+                    logger.error(f"📍 Error type: {type(e).__name__}")
+                    import traceback
+                    logger.error(f"📋 Traceback: {traceback.format_exc()}")
+                    logger.info("🔄 Sleeping 10 seconds and continuing...")
                     await asyncio.sleep(10)
         
         finally:
