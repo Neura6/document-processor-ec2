@@ -255,3 +255,52 @@ class S3Service:
         except Exception as e:
             logger.error(f"Error during async S3 get_object: {e}")
             raise
+    
+    async def head_object_async(self, bucket: str, key: str) -> bool:
+        """
+        True async version of head_object to check if object exists.
+        Uses aioboto3 if available, falls back to executor.
+        
+        Args:
+            bucket: S3 bucket name
+            key: Object key
+            
+        Returns:
+            True if object exists, raises exception if not
+        """
+        try:
+            if AIOBOTO3_AVAILABLE:
+                # Use true async with aioboto3
+                session = aioboto3.Session(
+                    aws_access_key_id=self.aws_access_key_id,
+                    aws_secret_access_key=self.aws_secret_access_key,
+                    region_name=self.region_name
+                )
+                
+                config = Config(
+                    region_name=self.region_name,
+                    retries={'max_attempts': 3, 'mode': 'adaptive'},
+                    max_pool_connections=50,
+                    connect_timeout=60,
+                    read_timeout=60
+                )
+                
+                async with session.client('s3', config=config) as s3:
+                    await s3.head_object(Bucket=bucket, Key=key)
+                    return True
+            else:
+                # Fallback to executor
+                loop = asyncio.get_event_loop()
+                result = await loop.run_in_executor(
+                    None, 
+                    self.object_exists, 
+                    bucket, 
+                    key
+                )
+                if not result:
+                    raise Exception(f"Object {key} does not exist in bucket {bucket}")
+                return result
+            
+        except Exception as e:
+            # Re-raise the exception to be caught by the orchestrator
+            raise e

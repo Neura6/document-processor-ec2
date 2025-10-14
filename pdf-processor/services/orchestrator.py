@@ -350,6 +350,13 @@ class Orchestrator:
             try:
                 self.logger.info(f"🚀 Starting async processing: {file_key}")
                 
+                # Stage 0: File Existence Check (OPTIMIZATION)
+                try:
+                    await self.s3_service.head_object_async(self.SOURCE_BUCKET, file_key)
+                except Exception as e:
+                    self.logger.info(f"⏭️  Skipping non-existent file: {file_key} - {str(e)}")
+                    return True  # Return True to mark as "successfully skipped"
+                
                 # Stage 1: File Download (ASYNC)
                 self.logger.info(f"📥 Starting async S3 download: {file_key}")
                 pdf_data = await self.s3_service.get_object_async(self.SOURCE_BUCKET, file_key)
