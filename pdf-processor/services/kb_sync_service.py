@@ -12,6 +12,8 @@ import time
 import logging
 import os
 import threading
+import csv
+from datetime import datetime
 try:
     import fcntl
 except ImportError:
@@ -88,8 +90,128 @@ class KBIngestionService:
         self._lock_dir = '/tmp/kb_locks'
         os.makedirs(self._lock_dir, exist_ok=True)
         
+        # CSV logging for KB sync failures
+        services_dir = os.path.dirname(os.path.abspath(__file__))
+        self.csv_log_file = os.path.join(services_dir, 'kb_sync_failures.csv')
+        self._csv_lock = threading.Lock()
+        self._initialize_csv_log()
+        
         # Pattern for detecting token limit errors
         self.token_error_pattern = re.compile(r'file\s+([^\s]+)\s+.*token\s+limit', re.IGNORECASE)
+
+    def _initialize_csv_log(self):
+        """Initialize CSV log file with headers if it doesn't exist"""
+        try:
+            if not os.path.exists(self.csv_log_file):
+                with open(self.csv_log_file, 'w', newline='', encoding='utf-8') as csvfile:
+                    writer = csv.writer(csvfile)
+                    writer.writerow(['timestamp', 'kb_sync_error', 'pdf_s3_uri', 'error_type', 'job_id', 'folder_name'])
+                logger.info(f"Initialized KB sync failure CSV log: {self.csv_log_file}")
+        except Exception as e:
+            logger.error(f"Failed to initialize CSV log file: {e}")
+
+    def _log_kb_sync_failure_to_csv(self, error_message: str, pdf_s3_uri: str, error_type: str, job_id: str = '', folder_name: str = ''):
+        """
+        Log KB sync failure to CSV file in thread-safe manner
+        
+        Args:
+            error_message: The KB sync error message
+            pdf_s3_uri: S3 URI of the failed PDF
+            error_type: Type of error (TOKEN_LIMIT, MALFORMED_INPUT, etc.)
+            job_id: Bedrock ingestion job ID
+            folder_name: Folder being processed
+        """
+        try:
+            with self._csv_lock:
+                timestamp = datetime.now().isoformat()
+                with open(self.csv_log_file, 'a', newline='', encoding='utf-8') as csvfile:
+                    writer = csv.writer(csvfile)
+                    writer.writerow([timestamp, error_message, pdf_s3_uri, error_type, job_id, folder_name])
+                logger.info(f"Logged KB sync failure to CSV: {pdf_s3_uri} - {error_type}")
+        except Exception as e:
+            logger.error(f"Failed to log KB sync failure to CSV: {e}")
+
+    def _extract_failed_files_from_reasons(self, failure_reasons: List[str], job_id: str, folder_name: str) -> List[str]:
+        """
+        Extract failed file information from failure reasons and log to CSV
+        
+        Args:
+            failure_reasons: List of failure reason strings from Bedrock
+            job_id: Bedrock ingestion job ID
+            folder_name: Folder being processed
+            
+        Returns:
+            List of failed file paths
+        """
+        failed_files = []
+        
+        for reason in failure_reasons:
+            if isinstance(reason, str):
+                # Parse the JSON-like error messages from your example
+                try:
+                    # Handle cases where reason might be a JSON string
+                    if reason.startswith('[') and reason.endswith(']'):
+                        import ast
+                        reason_list = ast.literal_eval(reason)
+                        for sub_reason in reason_list:
+                            self._process_single_failure_reason(sub_reason, job_id, folder_name, failed_files)
+                    else:
+                        self._process_single_failure_reason(reason, job_id, folder_name, failed_files)
+                except Exception as e:
+                    logger.error(f"Error parsing failure reason: {e}")
+                    # Fallback to original token pattern matching
+                    match = self.token_error_pattern.search(reason)
+                    if match:
+                        failed_file = match.group(1)
+                        if failed_file not in failed_files:
+                            failed_files.append(failed_file)
+                            self._log_kb_sync_failure_to_csv(
+                                error_message=reason,
+                                pdf_s3_uri=f"s3://{self.config.CHUNKED_BUCKET}/{failed_file}",
+                                error_type="TOKEN_LIMIT_PATTERN",
+                                job_id=job_id,
+                                folder_name=folder_name
+                            )
+        
+        return failed_files
+
+    def _process_single_failure_reason(self, reason: str, job_id: str, folder_name: str, failed_files: List[str]):
+        """Process a single failure reason and extract file information"""
+        try:
+            # Look for file patterns in the error message
+            # Pattern 1: "Issue occurred while processing file: filename"
+            file_pattern1 = re.search(r'Issue occurred while processing file:\s*(.+?\.pdf)', reason)
+            
+            # Pattern 2: Token limit errors
+            token_pattern = re.search(r'Too many input tokens|token\s+limit|maxLength', reason, re.IGNORECASE)
+            
+            # Pattern 3: Malformed input
+            malformed_pattern = re.search(r'Malformed input request|maxLength', reason, re.IGNORECASE)
+            
+            if file_pattern1:
+                failed_file = file_pattern1.group(1).strip()
+                if failed_file not in failed_files:
+                    failed_files.append(failed_file)
+                    
+                    # Determine error type
+                    if token_pattern:
+                        error_type = "TOKEN_LIMIT_EXCEEDED"
+                    elif malformed_pattern:
+                        error_type = "MALFORMED_INPUT"
+                    else:
+                        error_type = "PROCESSING_ERROR"
+                    
+                    # Log to CSV
+                    self._log_kb_sync_failure_to_csv(
+                        error_message=reason,
+                        pdf_s3_uri=f"s3://{self.config.CHUNKED_BUCKET}/{failed_file}",
+                        error_type=error_type,
+                        job_id=job_id,
+                        folder_name=folder_name
+                    )
+                    
+        except Exception as e:
+            logger.error(f"Error processing failure reason: {e}")
 
     def _acquire_kb_lock(self, kb_id: str, timeout: int = 3600) -> bool:
         """
@@ -104,7 +226,14 @@ class KBIngestionService:
             
             # Try to acquire exclusive lock (non-blocking)
             try:
-                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                if fcntl:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                else:
+                    # Windows alternative - check if file exists and is recent
+                    if os.path.exists(lock_file):
+                        stat = os.stat(lock_file)
+                        if time.time() - stat.st_mtime < timeout:
+                            raise IOError("Lock file exists")
                 
                 # Write process info to lock file
                 lock_info = {
@@ -152,7 +281,8 @@ class KBIngestionService:
                     fd = lock_info['fd']
                     
                     # Release file lock
-                    fcntl.flock(fd, fcntl.LOCK_UN)
+                    if fcntl:
+                        fcntl.flock(fd, fcntl.LOCK_UN)
                     os.close(fd)
                     
                     # Remove lock file
@@ -425,20 +555,23 @@ class KBIngestionService:
                     logger.error(f"KB_SYNC: Job failed after {elapsed:.0f}s")
                     logger.error(f"KB_SYNC: Failure reasons: {failure_reasons}")
 
-                    # Check for token limit errors
-                    for reason in failure_reasons:
-                        if isinstance(reason, str):
-                            match = self.token_error_pattern.search(reason)
-                            if match:
-                                failed_file = match.group(1)
-                                if failed_file not in failed_files_due_to_tokens:
-                                    failed_files_due_to_tokens.append(failed_file)
-                                    logger.warning(f"KB_SYNC: Token limit exceeded for file: {failed_file}")
+                    # Extract failed files and log to CSV using new method
+                    failed_files_due_to_tokens = self._extract_failed_files_from_reasons(
+                        failure_reasons, job_id, folder_name
+                    )
 
                     if failed_files_due_to_tokens:
                         logger.warning(f"KB_SYNC: {len(failed_files_due_to_tokens)} files failed due to token limits")
                         return {'status': 'FAILED_TOKEN_ERROR', 'failed_files': failed_files_due_to_tokens, 'duration': elapsed}
                     else:
+                        # Log general failure to CSV if no specific files identified
+                        self._log_kb_sync_failure_to_csv(
+                            error_message=str(failure_reasons),
+                            pdf_s3_uri=f"s3://{self.config.CHUNKED_BUCKET}/{folder_name}/",
+                            error_type="GENERAL_FAILURE",
+                            job_id=job_id,
+                            folder_name=folder_name
+                        )
                         return {'status': 'FAILED_OTHER_ERROR', 'message': f'Ingestion job failed: {failure_reasons}', 'duration': elapsed}
 
                 elif status == 'IN_PROGRESS':

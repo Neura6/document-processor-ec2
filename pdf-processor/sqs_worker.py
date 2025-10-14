@@ -390,8 +390,6 @@ class SQSWorker:
             # Cleanup
             if hasattr(self.orchestrator, 'executor'):
                 self.orchestrator.executor.shutdown(wait=True)
-
-
 if __name__ == "__main__":
     worker = SQSWorker()
     
