@@ -98,7 +98,6 @@ class MetadataService:
         elif document_type == 'userspecific-temp-docs':
             if user_id:
                 metadata_to_add = {"user_id": user_id}
-
         else:
             self.logger.info(f"No metadata rules matched for {document_type}")
 
