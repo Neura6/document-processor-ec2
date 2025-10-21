@@ -52,7 +52,8 @@ class KBMappingConfig:
     'test':{'id':'VDAPHQ1JTN','data_source_id':'EAVX8UD6RY'},
     'Banking-Regulations-Bahrain':{'id':'DENKRCJT22','data_source_id':'CZL093W4EF'},
     'Transfer-Pricing-Global':{'id':'JKO9EJMUAQ','data_source_id':'V0GJT5LKPR'},
-    'Indirect Taxes-test':{'id':'EAPMVRJVEK','data_source_id':'8J5DW43THM'}
+    'Indirect Taxes-test':{'id':'EAPMVRJVEK','data_source_id':'8J5DW43THM'},
+    'userspecific-temp-docs':{'id':'NHOYK6LVLY','data_source_id':'QXTRNAKFBB'}
 }
     
     CHUNKED_BUCKET = 'chunked-rules-repository'

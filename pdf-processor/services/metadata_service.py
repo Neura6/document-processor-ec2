@@ -62,7 +62,7 @@ class MetadataService:
             self.logger.error(f"Error creating metadata file for {key}: {str(e)}")
             return False
     
-    def determine_metadata_attributes(self, document_type: str, country: str, complexity: Optional[str] = None, volume: Optional[str] = None) -> Dict:
+    def determine_metadata_attributes(self, document_type: str, country: str, complexity: Optional[str] = None, volume: Optional[str] = None, user_id: Optional[str] = None) -> Dict:
         """
         Determine metadata attributes based on document type and folder structure.
         
@@ -71,6 +71,7 @@ class MetadataService:
             country: Country from folder structure
             complexity: Complexity level from folder structure
             volume: Volume level from folder structure (for Banking Regulations Bahrain)
+            user_id: User ID for userspecific-temp-docs
             
         Returns:
             Dict: Metadata attributes to add
@@ -93,6 +94,10 @@ class MetadataService:
 
         elif document_type in self.ONLY_COUNTRY_LIST:
             metadata_to_add = {"country": country}
+
+        elif document_type == 'userspecific-temp-docs':
+            if user_id:
+                metadata_to_add = {"user_id": user_id}
 
         else:
             self.logger.info(f"No metadata rules matched for {document_type}")
@@ -123,8 +128,13 @@ class MetadataService:
             # Handle different folder structures
             complexity = None
             volume = None
+            user_id = None
             
-            if document_type == 'Banking-Regulations-Bahrain' and country == 'Bahrain':
+            if document_type == 'userspecific-temp-docs':
+                # For userspecific-temp-docs: folder/user_id/filename
+                user_id = parts[1] if len(parts) > 1 else None
+                country = None  # Not applicable for user-specific docs
+            elif document_type == 'Banking-Regulations-Bahrain' and country == 'Bahrain':
                 # For Banking Regulations Bahrain: folder/country/volume/...
                 volume = parts[2] if len(parts) > 2 else None
             else:
@@ -132,7 +142,7 @@ class MetadataService:
                 complexity = parts[2] if len(parts) > 2 else None
             
             # Determine metadata attributes
-            metadata_attributes = self.determine_metadata_attributes(document_type, country, complexity, volume)
+            metadata_attributes = self.determine_metadata_attributes(document_type, country, complexity, volume, user_id)
             
             if not metadata_attributes:
                 self.logger.info(f"No metadata attributes to add for {s3_key}")

@@ -103,6 +103,10 @@ class ChunkingService:
                 if len(parts) > 2:
                     metadata['year'] = parts[2]
                 metadata['document_name'] = os.path.splitext(parts[-1])[0]
+        elif folder == 'userspecific-temp-docs':
+            if len(parts) > 1:
+                metadata['user_id'] = parts[1]  # Extract user ID instead of country
+                metadata['document_name'] = os.path.splitext(parts[-1])[0]
         else:
             # Handle generic case
             if len(parts) > 1:
