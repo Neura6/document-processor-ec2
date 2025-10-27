@@ -1,6 +1,8 @@
 from prometheus_client import Counter, Histogram, Gauge, start_http_server
 import time
 import re
+import socketserver
+import logging
 
 # Processing metrics
 files_processed_total = Counter('pdf_files_processed_total', 'Total files processed', ['status', 'folder'])
@@ -43,9 +45,28 @@ active_processing_jobs = Gauge('active_processing_jobs', 'Number of active proce
 processing_rate = Gauge('processing_rate_per_hour', 'Processing rate per hour')
 
 def start_metrics_server(port=8000):
-    """Start Prometheus metrics server"""
-    start_http_server(port)
-    print(f"Metrics server started on port {port}")
+    """Start Prometheus metrics server with connection error handling"""
+    try:
+        # Monkey patch the socketserver to handle connection errors silently
+        original_handle_error = socketserver.BaseServer.handle_error
+        
+        def silent_handle_error(self, request, client_address):
+            """Handle errors silently for connection resets."""
+            import sys
+            exc_type, exc_value, exc_traceback = sys.exc_info()
+            
+            # Only log non-connection reset errors
+            if not isinstance(exc_value, (ConnectionResetError, BrokenPipeError, OSError)):
+                original_handle_error(self, request, client_address)
+            # Silently ignore connection reset errors
+        
+        socketserver.BaseServer.handle_error = silent_handle_error
+        
+        start_http_server(port)
+        print(f"Metrics server started on port {port}")
+    except Exception as e:
+        logging.error(f"Failed to start metrics server: {e}")
+        # Continue without metrics server rather than crashing
 
 def sanitize_label_value(value):
     """Sanitize label values for Prometheus compatibility"""

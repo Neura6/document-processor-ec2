@@ -1,5 +1,6 @@
 import time
 import logging
+import socketserver
 from prometheus_client import Counter, Histogram, Gauge, start_http_server
 import time
 # Import shared metrics from metrics.py
@@ -9,6 +10,20 @@ from typing import Dict, Any
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+class SilentHTTPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
+    """Custom HTTP server that silently handles connection reset errors."""
+    
+    def handle_error(self, request, client_address):
+        """Override to silently handle ConnectionResetError."""
+        import sys
+        exc_type, exc_value, exc_traceback = sys.exc_info()
+        
+        # Only log non-connection reset errors
+        if not isinstance(exc_value, (ConnectionResetError, BrokenPipeError)):
+            logger.error(f"HTTP server error from {client_address}: {exc_value}")
+        # Silently ignore connection reset errors as they're normal
+
 # Document Processing Pipeline Metrics
 class DocumentMetrics:
     """Centralized metrics collection for document processing pipeline."""
@@ -149,9 +164,28 @@ class DocumentMetrics:
 metrics = DocumentMetrics()
 
 def start_metrics_server(port: int = 8000):
-    """Start the Prometheus metrics server."""
-    start_http_server(port)
-    logger.info(f"Metrics server started on port {port}")
+    """Start the Prometheus metrics server with connection error handling."""
+    try:
+        # Monkey patch the socketserver to handle connection errors silently
+        original_handle_error = socketserver.BaseServer.handle_error
+        
+        def silent_handle_error(self, request, client_address):
+            """Handle errors silently for connection resets."""
+            import sys
+            exc_type, exc_value, exc_traceback = sys.exc_info()
+            
+            # Only log non-connection reset errors
+            if not isinstance(exc_value, (ConnectionResetError, BrokenPipeError, OSError)):
+                original_handle_error(self, request, client_address)
+            # Silently ignore connection reset errors
+        
+        socketserver.BaseServer.handle_error = silent_handle_error
+        
+        start_http_server(port)
+        logger.info(f"Metrics server started on port {port}")
+    except Exception as e:
+        logger.error(f"Failed to start metrics server: {e}")
+        # Continue without metrics server rather than crashing
 
 if __name__ == "__main__":
     start_metrics_server()
