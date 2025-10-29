@@ -351,7 +351,7 @@ class KBIngestionService:
                 job_id_step1 = response['ingestionJob']['ingestionJobId']
                 logger.info(f"Started initial ingestion job {job_id_step1} for folder {folder}")
 
-                wait_result_step1 = self.wait_for_ingestion_job(kb_info, job_id_step1)
+                wait_result_step1 = self.wait_for_ingestion_job(kb_info, job_id_step1, folder)
 
                 if 'failed_files' in wait_result_step1 and wait_result_step1['failed_files']:
                     failed_files_initial_sync.extend(wait_result_step1['failed_files'])
@@ -383,7 +383,7 @@ class KBIngestionService:
                 job_id_step2 = response['ingestionJob']['ingestionJobId']
                 logger.info(f"Started retry ingestion job {job_id_step2} for folder {folder}")
 
-                wait_result_step2 = self.wait_for_ingestion_job(kb_info, job_id_step2)
+                wait_result_step2 = self.wait_for_ingestion_job(kb_info, job_id_step2, folder)
                 if wait_result_step2.get('status') != 'COMPLETE':
                     logger.warning(f"Retry sync job {job_id_step2} completed with status: {wait_result_step2.get('status')}")
 
@@ -480,7 +480,7 @@ class KBIngestionService:
                     raise e
 
             # Wait for job to complete with enhanced logging
-            wait_result = self.wait_for_ingestion_job(kb_info, job_id)
+            wait_result = self.wait_for_ingestion_job(kb_info, job_id, folder)
             
             # Log final status
             if wait_result.get('status') == 'COMPLETE':
@@ -502,7 +502,7 @@ class KBIngestionService:
             # Always release the lock
             self._release_kb_lock(kb_id)
 
-    def wait_for_ingestion_job(self, kb_info: Dict[str, str], job_id: str) -> Dict[str, Any]:
+    def wait_for_ingestion_job(self, kb_info: Dict[str, str], job_id: str, folder_name: str = '') -> Dict[str, Any]:
         """
         Polls the knowledge base for ingestion job status, extracts failed files
         due to token limits if the job fails with relevant reasons.
