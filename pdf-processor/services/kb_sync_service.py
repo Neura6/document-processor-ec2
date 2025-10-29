@@ -31,7 +31,7 @@ class KBMappingConfig:
     'accounting-standards': {'id': '1XYVHJWXEA', 'data_source_id': 'VQ53AYFFGO'},
     'accounting-global': {'id': 'BPFC6I50NY', 'data_source_id': 'C7NTSCZJPA'},
     'commercial-laws': {'id': 'CAQ6E0JJBW', 'data_source_id': 'AY5EWVXYF6'},
-    'usecase-reports': {'id': 'WHF3OXB1MQ', 'data_source_id': 'X4FZFSK7QC'},
+    'usecase-reports': {'id': 'MPLWH62JQA', 'data_source_id': 'ZJ3ZQYU5BJ'},
     'Auditing Standards': {'id': 'XXFFTJYAD1', 'data_source_id': 'OH8L2PTHYU'},
     'Auditing-global': {'id': 'GQOXRJAYPO', 'data_source_id': 'WWPU0ELXBR'},
     'Banking Regulations': {'id': 'VDMWYPSOYO', 'data_source_id': 'I6QTPRZOSP'},
@@ -43,17 +43,16 @@ class KBMappingConfig:
     'Labour Law': {'id': 'CAQ6E0JJBW', 'data_source_id': 'PLIPBARA5R'},
     'Finance Tools': {'id': '1XYVHJWXEA', 'data_source_id': '18HMESLJIY'},
     'GIFT City': {'id': 'VDMWYPSOYO', 'data_source_id': 'RL7KXCTETU'},
-    'usecase-reports-2': {'id': 'WHF3OXB1MQ', 'data_source_id': 'DVNHB5JJT7'},
+    'usecase-reports-2': {'id': 'MPLWH62JQA', 'data_source_id': 'DLEOONAFF3'},
     'Direct-Taxes-case-laws': {'id': 'UJNOWHQEQ9', 'data_source_id': '9OUZYLFVCV'},
     'Indirect-Taxes-case-laws': {'id': 'PMF8OY8ZSG', 'data_source_id': 'WRRCYQD3R0'},
     'Insurance-caselaws': {'id': 'IUB7BI5IXQ', 'data_source_id': 'CB2LPPFQUW'},
-    'usecase-reports-4': {'id': 'WHF3OXB1MQ', 'data_source_id': 'CN63WXZKZW'},
+    'usecase-reports-3': {'id': 'MPLWH62JQA', 'data_source_id': '3USTFVCZLE'},
+    'usecase-reports-4': {'id': 'MPLWH62JQA', 'data_source_id': '7UMOIOM161'},
+    'usecase-reports-5': {'id': 'MPLWH62JQA', 'data_source_id': 'NHVSOJYK96'},
     'commercial-case-laws': {'id': 'DQ6AIARMNQ', 'data_source_id': 'NXNCQID5NX'},
     'test':{'id':'VDAPHQ1JTN','data_source_id':'EAVX8UD6RY'},
-    'Banking-Regulations-Bahrain':{'id':'DENKRCJT22','data_source_id':'CZL093W4EF'},
-    'Transfer-Pricing-Global':{'id':'JKO9EJMUAQ','data_source_id':'V0GJT5LKPR'},
-    'Indirect Taxes-test':{'id':'EAPMVRJVEK','data_source_id':'8J5DW43THM'},
-    'userspecific-temp-docs':{'id':'NHOYK6LVLY','data_source_id':'QXTRNAKFBB'}
+    'Banking-Regulations-Bahrain':{'id':'DENKRCJT22','data_source_id':'CZL093W4EF'}
 }
     
     CHUNKED_BUCKET = 'chunked-rules-repository'
