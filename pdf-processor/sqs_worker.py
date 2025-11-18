@@ -69,6 +69,7 @@ class SQSWorker:
             s3_record = record.get('s3', {})
             bucket_name = s3_record.get('bucket', {}).get('name')
             object_key = s3_record.get('object', {}).get('key')
+            object_size = s3_record.get('object', {}).get('size')
             
             if not all([bucket_name, object_key]):
                 logger.error(f"Invalid S3 event format: {record}")
@@ -76,6 +77,15 @@ class SQSWorker:
             
             # URL decode the object key to handle spaces properly
             object_key = unquote_plus(object_key)
+
+            # Quick sanity checks: skip directory placeholders or zero-byte objects
+            if not object_key or object_key.endswith('/') or (object_size is not None and int(object_size) == 0):
+                logger.info(f"[PARALLEL] Skipping non-file S3 event (folder/zero-size): s3://{bucket_name}/{object_key}")
+                return {
+                    'success': True,
+                    'file': object_key,
+                    'receipt_handle': message['ReceiptHandle']
+                }
             
             # Log with proper path formatting
             display_path = object_key.replace('+', ' ')
@@ -276,6 +286,17 @@ class SQSWorker:
                     if record.get('eventSource') == 'aws:s3':
                         bucket = record['s3']['bucket']['name']
                         object_key = unquote_plus(record['s3']['object']['key'])
+                        # Try to read object size if present in the event; default to None
+                        object_size = record['s3']['object'].get('size') if record['s3'].get('object') else None
+
+                        # Skip events that are folder placeholders or zero-byte objects
+                        if not object_key or object_key.endswith('/') or (object_size is not None and int(object_size) == 0):
+                            logger.info(f"[ASYNC] Skipping non-file S3 event (folder/zero-size): s3://{bucket}/{object_key}")
+                            return {
+                                'success': True,
+                                'file': object_key,
+                                'receipt_handle': message['ReceiptHandle']
+                            }
                         
                         logger.info(f"[ASYNC] Processing S3 object: {object_key}")
                         
