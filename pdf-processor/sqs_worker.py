@@ -213,7 +213,7 @@ class SQSWorker:
                     QueueUrl=self.queue_url,
                     Entries=entries
                 )
-                logger.debug(f"Deleted batch of {len(batch)} messages")
+                logger.info(f"Deleted batch of {len(batch)} messages from SQS")
             except Exception as e:
                 logger.error(f"Error deleting message batch: {e}")
                 # Fallback to individual deletions
@@ -223,6 +223,7 @@ class SQSWorker:
                             QueueUrl=self.queue_url,
                             ReceiptHandle=receipt_handle
                         )
+                        logger.info(f"Deleted individual message from SQS")
                     except Exception as e2:
                         logger.error(f"Error deleting individual message: {e2}")
     
